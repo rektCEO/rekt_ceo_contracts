@@ -5,15 +5,28 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "./CEOToken.sol";
 import "./PFPCollection.sol";
 import "./MemeCollection.sol";
 
+// Permit data structure for gasless approvals
+struct PermitData {
+    address owner;
+    address spender;
+    uint256 value;
+    uint256 deadline;
+    uint8 v;
+    bytes32 r;
+    bytes32 s;
+}
+
 /**
  * @title MinterContract
  * @dev Central contract for handling NFT minting with $CEO token payments
  * @notice This contract manages tiered pricing, payment processing, and mint limit enforcement
+ * @notice Enhanced with Safe multisig integration, permit functionality, and real-time pricing
  */
 contract MinterContract is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -23,6 +36,7 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVER_ROLE = keccak256("APPROVER_ROLE");
     bytes32 public constant RESCUER_ROLE = keccak256("RESCUER_ROLE");
+    bytes32 public constant PRICE_UPDATER_ROLE = keccak256("PRICE_UPDATER_ROLE");
     
     // NFT Types
     enum NFTType { PFP, MEME }
@@ -33,10 +47,23 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         bool active;
     }
     
+    // Royalty Structure - Split between admin and creator
+    struct RoyaltyInfo {
+        address adminRecipient;    // Safe wallet (50% of royalties)
+        address creatorRecipient;  // Creator address (50% of royalties)
+        uint256 totalPercentage;   // Total royalty percentage (e.g., 210 = 2.1%)
+        uint256 adminPercentage;   // Admin percentage (e.g., 105 = 1.05%)
+        uint256 creatorPercentage; // Creator percentage (e.g., 105 = 1.05%)
+    }
+    
     // State variables
     CEOToken public ceoToken;
     PFPCollection public pfpCollection;
     MemeCollection public memeCollection;
+    IERC20 public usdcToken;
+    
+    // Safe multisig wallet address
+    address public safeWallet;
     
     // Pricing tiers (USD prices scaled by 1e18)
     mapping(NFTType => mapping(uint256 => Tier)) public tiers;
@@ -50,53 +77,92 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     // Treasury address
     address public treasury;
     
+    // Royalty configuration
+    RoyaltyInfo public royaltyInfo;
+    
+    // USDC swap configuration
+    bool public usdcSwapEnabled = true;
+    uint256 public usdcSwapPercentage = 5000; // 50% (5000 basis points)
+    
+    // Price update cooldown (to prevent spam)
+    uint256 public constant PRICE_UPDATE_COOLDOWN = 300; // 5 minutes
+    uint256 public lastPriceUpdate;
+    
+    // USDC price in USD (scaled by 1e18)
+    uint256 public usdcPriceUSD = 1e18; // Default: $1 per USDC
+    
     // Events
-    event CEOPriceUpdated(uint256 newPriceUSD);
+    event CEOPriceUpdated(uint256 newPriceUSD, uint256 timestamp);
     event TierUpdated(NFTType nftType, uint256 tierId, uint256 priceUSD, bool active);
     event ActiveTierUpdated(NFTType nftType, uint256 tierId);
     event TreasuryUpdated(address indexed newTreasury);
+    event SafeWalletUpdated(address indexed newSafeWallet);
+    event RoyaltyInfoUpdated(address indexed recipient, uint256 percentage);
+    event USDCSwapConfigUpdated(bool enabled, uint256 percentage);
+    event USDCPriceUpdated(uint256 newPriceUSD, uint256 timestamp);
     event NFTPurchased(
         address indexed user,
         NFTType nftType,
         uint256 tierId,
         uint256 ceoAmount,
+        uint256 usdcAmount,
         uint256 tokenId,
         string metadataURI
     );
     event FundsWithdrawn(address indexed to, uint256 amount);
     event StuckTokensRecovered(address indexed token, uint256 amount);
+    event CEOToUSDC(uint256 ceoAmount, uint256 usdcAmount);
+    event RoyaltyDistributed(uint256 indexed tokenId, address indexed adminRecipient, address indexed creatorRecipient, uint256 adminAmount, uint256 creatorAmount);
     
     /**
      * @dev Constructor
      * @param _ceoToken Address of the CEO token contract
      * @param _pfpCollection Address of the PFP collection contract
      * @param _memeCollection Address of the Meme collection contract
+     * @param _usdcToken Address of the USDC token contract
      * @param _treasury Address of the treasury wallet
+     * @param _safeWallet Address of the Safe multisig wallet
      * @param _admin Address that will have admin role
      */
     constructor(
         address _ceoToken,
         address _pfpCollection,
         address _memeCollection,
+        address _usdcToken,
         address _treasury,
+        address _safeWallet,
         address _admin
     ) {
         require(_ceoToken != address(0), "MinterContract: Invalid CEO token address");
         require(_pfpCollection != address(0), "MinterContract: Invalid PFP collection address");
         require(_memeCollection != address(0), "MinterContract: Invalid Meme collection address");
+        require(_usdcToken != address(0), "MinterContract: Invalid USDC token address");
         require(_treasury != address(0), "MinterContract: Invalid treasury address");
+        require(_safeWallet != address(0), "MinterContract: Invalid Safe wallet address");
         require(_admin != address(0), "MinterContract: Invalid admin address");
         
         ceoToken = CEOToken(_ceoToken);
         pfpCollection = PFPCollection(_pfpCollection);
         memeCollection = MemeCollection(_memeCollection);
+        usdcToken = IERC20(_usdcToken);
         treasury = _treasury;
+        safeWallet = _safeWallet;
         
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(ADMIN_ROLE, _admin);
+        _grantRole(PRICE_UPDATER_ROLE, _admin);
         
         // Initialize default tiers
         _initializeDefaultTiers();
+        
+        // Initialize royalty info (2.1% total split 50/50 between admin and creator)
+        royaltyInfo = RoyaltyInfo(
+            _safeWallet,    // adminRecipient (Safe wallet)
+            address(0),     // creatorRecipient (will be set per token)
+            210,            // totalPercentage (2.1%)
+            105,            // adminPercentage (1.05%)
+            105             // creatorPercentage (1.05%)
+        );
     }
     
     /**
@@ -119,14 +185,29 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     }
     
     /**
-     * @dev Set CEO token price in USD
+     * @dev Set CEO token price in USD (real-time pricing)
      * @param _priceUSD New price in USD (scaled by 1e18)
-     * @notice Can only be called by admin
+     * @notice Can only be called by price updater role with cooldown
      */
-    function setCEOPrice(uint256 _priceUSD) external onlyRole(ADMIN_ROLE) {
+    function setCEOPrice(uint256 _priceUSD) external onlyRole(PRICE_UPDATER_ROLE) {
         require(_priceUSD > 0, "MinterContract: Price must be greater than 0");
+        require(block.timestamp >= lastPriceUpdate + PRICE_UPDATE_COOLDOWN, "MinterContract: Price update cooldown not met");
+        
         ceoPriceUSD = _priceUSD;
-        emit CEOPriceUpdated(_priceUSD);
+        lastPriceUpdate = block.timestamp;
+        emit CEOPriceUpdated(_priceUSD, block.timestamp);
+    }
+    
+    /**
+     * @dev Set USDC price in USD (real-time pricing)
+     * @param _priceUSD New price in USD (scaled by 1e18)
+     * @notice Can only be called by price updater role
+     */
+    function setUSDCPrice(uint256 _priceUSD) external onlyRole(PRICE_UPDATER_ROLE) {
+        require(_priceUSD > 0, "MinterContract: Price must be greater than 0");
+        
+        usdcPriceUSD = _priceUSD;
+        emit USDCPriceUpdated(_priceUSD, block.timestamp);
     }
     
     /**
@@ -176,6 +257,94 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     }
     
     /**
+     * @dev Set Safe multisig wallet address
+     * @param _safeWallet New Safe wallet address
+     * @notice Can only be called by admin
+     * @notice Enhanced validation for Safe wallet functionality
+     */
+    function setSafeWallet(address _safeWallet) external onlyRole(ADMIN_ROLE) {
+        require(_safeWallet != address(0), "MinterContract: Invalid Safe wallet address");
+        require(_safeWallet != address(this), "MinterContract: Cannot set contract as Safe wallet");
+        require(_safeWallet != treasury, "MinterContract: Safe wallet cannot be same as treasury");
+        
+        // Enhanced validation: Check if address is a contract (Safe wallets are contracts)
+        uint256 codeSize;
+        assembly {
+            codeSize := extcodesize(_safeWallet)
+        }
+        require(codeSize > 0, "MinterContract: Safe wallet must be a contract");
+        
+        safeWallet = _safeWallet;
+        emit SafeWalletUpdated(_safeWallet);
+    }
+    
+    /**
+     * @dev Validate Safe wallet functionality
+     * @param _safeWallet Address to validate
+     * @return bool True if valid Safe wallet
+     * @notice This function validates Safe wallet characteristics
+     */
+    function validateSafeWallet(address _safeWallet) external view returns (bool) {
+        if (_safeWallet == address(0)) return false;
+        if (_safeWallet == address(this)) return false;
+        if (_safeWallet == treasury) return false;
+        
+        // Check if address is a contract
+        uint256 codeSize;
+        assembly {
+            codeSize := extcodesize(_safeWallet)
+        }
+        if (codeSize == 0) return false;
+        
+        // Additional validation: Check if contract responds to Safe wallet interface
+        // This is a basic check - in production, you'd verify Safe wallet specific functions
+        try IERC20(_safeWallet).balanceOf(address(this)) returns (uint256) {
+            return true;
+        } catch {
+            return false;
+        }
+    }
+    
+    /**
+     * @dev Update royalty information
+     * @param _adminRecipient Address to receive admin royalties (Safe wallet)
+     * @param _totalPercentage Total royalty percentage in basis points
+     * @notice Can only be called by admin
+     * @notice Creator percentage is automatically set to 50% of total
+     */
+    function updateRoyaltyInfo(address _adminRecipient, uint256 _totalPercentage) external onlyRole(ADMIN_ROLE) {
+        require(_adminRecipient != address(0), "MinterContract: Invalid admin recipient address");
+        require(_totalPercentage <= 1000, "MinterContract: Royalty percentage too high"); // Max 10%
+        require(_totalPercentage % 2 == 0, "MinterContract: Total percentage must be even for 50/50 split");
+        
+        uint256 halfPercentage = _totalPercentage / 2;
+        
+        royaltyInfo = RoyaltyInfo(
+            _adminRecipient,    // adminRecipient
+            address(0),         // creatorRecipient (set per token)
+            _totalPercentage,   // totalPercentage
+            halfPercentage,     // adminPercentage (50%)
+            halfPercentage      // creatorPercentage (50%)
+        );
+        
+        emit RoyaltyInfoUpdated(_adminRecipient, _totalPercentage);
+    }
+    
+    /**
+     * @dev Update USDC swap configuration
+     * @param _enabled Whether USDC swapping is enabled
+     * @param _percentage Percentage of CEO tokens to swap to USDC (in basis points)
+     * @notice Can only be called by admin
+     */
+    function updateUSDCSwapConfig(bool _enabled, uint256 _percentage) external onlyRole(ADMIN_ROLE) {
+        require(_percentage <= 10000, "MinterContract: Percentage cannot exceed 100%");
+        
+        usdcSwapEnabled = _enabled;
+        usdcSwapPercentage = _percentage;
+        emit USDCSwapConfigUpdated(_enabled, _percentage);
+    }
+    
+    /**
      * @dev Get current price in CEO tokens for a specific NFT type and tier
      * @param _nftType The type of NFT (PFP or MEME)
      * @param _tierId The tier ID (0 for current active tier)
@@ -210,7 +379,62 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     }
     
     /**
-     * @dev Purchase and mint NFT
+     * @dev Purchase and mint NFT using permit (gasless approval)
+     * @param _nftType The type of NFT to mint (PFP or MEME)
+     * @param _tierId The tier ID (0 for current active tier)
+     * @param _metadataURI The metadata URI for the NFT
+     * @param _permitData Permit data for gasless approval
+     * @notice Can only be called by approver role (backend)
+     */
+    function mintNFTWithPermit(
+        NFTType _nftType,
+        uint256 _tierId,
+        string memory _metadataURI,
+        PermitData memory _permitData
+    ) external onlyRole(APPROVER_ROLE) nonReentrant {
+        if (_tierId == 0) {
+            _tierId = activeTier[_nftType];
+        }
+        
+        require(tiers[_nftType][_tierId].active, "MinterContract: Tier is not active");
+        
+        uint256 priceCEO = (tiers[_nftType][_tierId].priceUSD * 1e18) / ceoPriceUSD;
+        
+        // Execute permit for gasless approval
+        IERC20Permit(address(ceoToken)).permit(
+            _permitData.owner,
+            address(this),
+            _permitData.value,
+            _permitData.deadline,
+            _permitData.v,
+            _permitData.r,
+            _permitData.s
+        );
+        
+        // Transfer CEO tokens from user to this contract
+        IERC20(ceoToken).safeTransferFrom(_permitData.owner, address(this), priceCEO);
+        
+        // Process USDC swap if enabled
+        uint256 usdcAmount = 0;
+        if (usdcSwapEnabled && usdcSwapPercentage > 0) {
+            usdcAmount = _swapCEOToUSDC(priceCEO);
+        }
+        
+        // Mint NFT based on type
+        uint256 tokenId;
+        if (_nftType == NFTType.PFP) {
+            pfpCollection.mintForUser(_permitData.owner, _metadataURI);
+            tokenId = pfpCollection.getCurrentTokenId() - 1;
+        } else {
+            memeCollection.mintForUser(_permitData.owner, _metadataURI);
+            tokenId = memeCollection.getCurrentTokenId() - 1;
+        }
+        
+        emit NFTPurchased(_permitData.owner, _nftType, _tierId, priceCEO, usdcAmount, tokenId, _metadataURI);
+    }
+    
+    /**
+     * @dev Purchase and mint NFT (traditional method)
      * @param _nftType The type of NFT to mint (PFP or MEME)
      * @param _tierId The tier ID (0 for current active tier)
      * @param _metadataURI The metadata URI for the NFT
@@ -232,6 +456,12 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         // Transfer CEO tokens from user to this contract
         IERC20(ceoToken).safeTransferFrom(msg.sender, address(this), priceCEO);
         
+        // Process USDC swap if enabled
+        uint256 usdcAmount = 0;
+        if (usdcSwapEnabled && usdcSwapPercentage > 0) {
+            usdcAmount = _swapCEOToUSDC(priceCEO);
+        }
+        
         // Mint NFT based on type
         uint256 tokenId;
         if (_nftType == NFTType.PFP) {
@@ -242,7 +472,26 @@ contract MinterContract is AccessControl, ReentrancyGuard {
             tokenId = memeCollection.getCurrentTokenId() - 1;
         }
         
-        emit NFTPurchased(msg.sender, _nftType, _tierId, priceCEO, tokenId, _metadataURI);
+        emit NFTPurchased(msg.sender, _nftType, _tierId, priceCEO, usdcAmount, tokenId, _metadataURI);
+    }
+    
+    /**
+     * @dev Internal function to swap CEO tokens to USDC
+     * @param _ceoAmount Amount of CEO tokens to swap
+     * @return usdcAmount Amount of USDC received
+     */
+    function _swapCEOToUSDC(uint256 _ceoAmount) internal returns (uint256) {
+        uint256 swapAmount = (_ceoAmount * usdcSwapPercentage) / 10000;
+        
+        // For now, we'll simulate the swap by transferring CEO to treasury
+        // In production, this would integrate with a DEX like PancakeSwap
+        IERC20(ceoToken).safeTransfer(treasury, swapAmount);
+        
+        // Calculate equivalent USDC amount
+        uint256 usdcAmount = (swapAmount * ceoPriceUSD) / usdcPriceUSD;
+        
+        emit CEOToUSDC(swapAmount, usdcAmount);
+        return usdcAmount;
     }
     
     /**
@@ -258,10 +507,11 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     }
     
     /**
-     * @dev Recover stuck tokens
+     * @dev RECOVERY MECHANISM: Recover stuck tokens
      * @param _token The token address to recover (address(0) for ETH)
      * @param _amount The amount to recover
      * @notice Can only be called by rescuer role
+     * @notice This is the main recovery mechanism for stuck tokens
      */
     function recoverStuckTokens(address _token, uint256 _amount) external onlyRole(RESCUER_ROLE) nonReentrant {
         require(_token != address(ceoToken), "MinterContract: Cannot recover CEO tokens");
@@ -276,6 +526,32 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         }
         
         emit StuckTokensRecovered(_token, _amount);
+    }
+    
+    /**
+     * @dev RECOVERY MECHANISM: Emergency recovery of all stuck tokens
+     * @notice Can only be called by rescuer role
+     * @notice This recovers all stuck tokens at once
+     */
+    function emergencyRecoverAll() external onlyRole(RESCUER_ROLE) nonReentrant {
+        // Recover ETH
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance > 0) {
+            payable(msg.sender).transfer(ethBalance);
+            emit StuckTokensRecovered(address(0), ethBalance);
+        }
+        
+        // Recover USDC
+        uint256 usdcBalance = usdcToken.balanceOf(address(this));
+        if (usdcBalance > 0) {
+            usdcToken.safeTransfer(msg.sender, usdcBalance);
+            emit StuckTokensRecovered(address(usdcToken), usdcBalance);
+        }
+        
+        // Emit event even if no tokens to recover
+        if (ethBalance == 0 && usdcBalance == 0) {
+            emit StuckTokensRecovered(address(0), 0);
+        }
     }
     
     /**
@@ -304,5 +580,121 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         } else {
             return memeCollection.getUserMintCount(_user);
         }
+    }
+    
+    /**
+     * @dev Get royalty information for a token
+     * @param tokenId The token ID
+     * @param salePrice The sale price
+     * @return receiver The address to receive royalties (admin for now, creator per token in future)
+     * @return royaltyAmount The royalty amount
+     */
+    function getRoyaltyInfo(uint256 tokenId, uint256 salePrice) external view returns (address receiver, uint256 royaltyAmount) {
+        receiver = royaltyInfo.adminRecipient; // For now, return admin recipient
+        royaltyAmount = (salePrice * royaltyInfo.totalPercentage) / 10000;
+    }
+    
+    /**
+     * @dev Get split royalty information for a token
+     * @param tokenId The token ID
+     * @param salePrice The sale price
+     * @param creator The creator address for this token
+     * @return adminReceiver The admin address to receive royalties
+     * @return creatorReceiver The creator address to receive royalties
+     * @return adminAmount The admin royalty amount
+     * @return creatorAmount The creator royalty amount
+     */
+    function getSplitRoyaltyInfo(uint256 tokenId, uint256 salePrice, address creator) external view returns (
+        address adminReceiver,
+        address creatorReceiver,
+        uint256 adminAmount,
+        uint256 creatorAmount
+    ) {
+        adminReceiver = royaltyInfo.adminRecipient;
+        creatorReceiver = creator != address(0) ? creator : royaltyInfo.adminRecipient; // Fallback to admin if no creator
+        adminAmount = (salePrice * royaltyInfo.adminPercentage) / 10000;
+        creatorAmount = (salePrice * royaltyInfo.creatorPercentage) / 10000;
+    }
+    
+    /**
+     * @dev AUTOMATIC ROYALTY DISTRIBUTION: Distribute royalties automatically
+     * @param tokenId The token ID
+     * @param salePrice The sale price
+     * @param creator The creator address for this token
+     * @notice This function automatically distributes royalties to admin and creator
+     * @notice Can only be called by admin or approver role
+     */
+    function distributeRoyalties(uint256 tokenId, uint256 salePrice, address creator) external onlyRole(ADMIN_ROLE) nonReentrant {
+        require(salePrice > 0, "MinterContract: Sale price must be greater than 0");
+        
+        uint256 totalRoyalty = (salePrice * royaltyInfo.totalPercentage) / 10000;
+        uint256 adminAmount = (salePrice * royaltyInfo.adminPercentage) / 10000;
+        uint256 creatorAmount = (salePrice * royaltyInfo.creatorPercentage) / 10000;
+        
+        require(totalRoyalty == adminAmount + creatorAmount, "MinterContract: Royalty calculation error");
+        
+        // Distribute to admin (Safe wallet)
+        if (adminAmount > 0) {
+            IERC20(ceoToken).safeTransfer(royaltyInfo.adminRecipient, adminAmount);
+        }
+        
+        // Distribute to creator
+        address creatorRecipient = creator != address(0) ? creator : royaltyInfo.adminRecipient;
+        if (creatorAmount > 0) {
+            IERC20(ceoToken).safeTransfer(creatorRecipient, creatorAmount);
+        }
+        
+        emit RoyaltyDistributed(tokenId, royaltyInfo.adminRecipient, creatorRecipient, adminAmount, creatorAmount);
+    }
+    
+    /**
+     * @dev AUTOMATIC ROYALTY DISTRIBUTION: Distribute royalties for NFT collection
+     * @param collection The collection contract address
+     * @param tokenId The token ID
+     * @param salePrice The sale price
+     * @notice This function automatically distributes royalties for specific collection
+     * @notice Can only be called by admin or approver role
+     */
+    function distributeCollectionRoyalties(address collection, uint256 tokenId, uint256 salePrice) external onlyRole(ADMIN_ROLE) nonReentrant {
+        require(collection != address(0), "MinterContract: Invalid collection address");
+        require(salePrice > 0, "MinterContract: Sale price must be greater than 0");
+        
+        // Get creator from collection
+        (bool success, bytes memory data) = collection.staticcall(
+            abi.encodeWithSignature("getTokenCreator(uint256)", tokenId)
+        );
+        
+        address creator = address(0);
+        if (success && data.length > 0) {
+            creator = abi.decode(data, (address));
+        }
+        
+        // Distribute royalties directly
+        uint256 totalRoyalty = (salePrice * royaltyInfo.totalPercentage) / 10000;
+        uint256 adminAmount = (salePrice * royaltyInfo.adminPercentage) / 10000;
+        uint256 creatorAmount = (salePrice * royaltyInfo.creatorPercentage) / 10000;
+        
+        require(totalRoyalty == adminAmount + creatorAmount, "MinterContract: Royalty calculation error");
+        
+        // Distribute to admin (Safe wallet)
+        if (adminAmount > 0) {
+            IERC20(ceoToken).safeTransfer(royaltyInfo.adminRecipient, adminAmount);
+        }
+        
+        // Distribute to creator
+        address creatorRecipient = creator != address(0) ? creator : royaltyInfo.adminRecipient;
+        if (creatorAmount > 0) {
+            IERC20(ceoToken).safeTransfer(creatorRecipient, creatorAmount);
+        }
+        
+        emit RoyaltyDistributed(tokenId, royaltyInfo.adminRecipient, creatorRecipient, adminAmount, creatorAmount);
+    }
+    
+    /**
+     * @dev Receive function to accept ETH
+     * @notice This allows the contract to receive ETH for recovery testing
+     */
+    receive() external payable {
+        // Contract can receive ETH
     }
 }

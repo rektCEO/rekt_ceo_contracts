@@ -13,7 +13,7 @@ describe("Rekt CEO Basic Tests", function () {
   beforeEach(async function () {
     [owner, user1, user2] = await ethers.getSigners();
 
-    // Deploy CEO Token  
+    // Deploy CEO Token
     const CEOToken = await ethers.getContractFactory("CEOToken");
     ceoToken = await CEOToken.deploy(owner.address);
     await ceoToken.waitForDeployment();
@@ -134,31 +134,31 @@ describe("Rekt CEO Basic Tests", function () {
 
     it("Should allow minting PFP NFT", async function () {
       const metadataURI = "https://example.com/pfp/metadata/1";
-
+      
       // Owner (who has APPROVER_ROLE) calls mintNFT for user1
       await minterContract.mintNFT(0, 1, metadataURI);
-
+      
       expect(await pfpCollection.ownerOf(1)).to.equal(owner.address);
       expect(await pfpCollection.tokenURI(1)).to.equal(metadataURI);
     });
 
     it("Should allow minting Meme NFT", async function () {
       const metadataURI = "https://example.com/meme/metadata/1";
-
+      
       // Owner (who has APPROVER_ROLE) calls mintNFT for user1
       await minterContract.mintNFT(1, 1, metadataURI);
-
+      
       expect(await memeCollection.ownerOf(1)).to.equal(owner.address);
       expect(await memeCollection.tokenURI(1)).to.equal(metadataURI);
     });
 
     it("Should enforce mint limits", async function () {
       const metadataURI = "https://example.com/pfp/metadata/";
-
+      
       // Mint 2 PFPs (max limit) - owner calls for owner
       await minterContract.mintNFT(0, 1, metadataURI + "1");
       await minterContract.mintNFT(0, 1, metadataURI + "2");
-
+      
       // Try to mint third (should fail)
       await expect(minterContract.mintNFT(0, 1, metadataURI + "3"))
         .to.be.revertedWith("PFPCollection: User mint limit reached");

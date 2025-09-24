@@ -7,13 +7,15 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/interfaces/IERC2981.sol";
 
 /**
  * @title MemeCollection
- * @dev ERC-721 NFT collection for Meme NFTs
+ * @dev ERC-721 NFT collection for Meme NFTs with royalty support
  * @notice This contract manages the Meme NFT collection with a maximum supply of 9,999 NFTs
+ * @notice Enhanced with Safe multisig integration and royalty management
  */
-contract MemeCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl, ReentrancyGuard {
+contract MemeCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl, ReentrancyGuard, IERC2981 {
     using Counters for Counters.Counter;
     
     // Roles
@@ -27,27 +29,47 @@ contract MemeCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCon
     // State variables
     Counters.Counter private _tokenIdCounter;
     address public minterContract;
+    address public safeWallet;
+    
+    // Royalty configuration - Split between admin and creator
+    address public adminRecipient;    // Safe wallet (50% of royalties)
+    uint256 public totalRoyaltyPercentage = 210; // 2.1% total in basis points
+    uint256 public adminRoyaltyPercentage = 105; // 1.05% admin in basis points
+    uint256 public creatorRoyaltyPercentage = 105; // 1.05% creator in basis points
     
     // Mapping to track user mint counts
     mapping(address => uint256) public userMintCount;
     
+    // Mapping to track first minter (creator) for each token
+    mapping(uint256 => address) public tokenCreator;
+    
     // Events
     event MinterContractSet(address indexed minterContract);
-    event NFTMinted(address indexed to, uint256 indexed tokenId, string metadataURI);
+    event SafeWalletSet(address indexed safeWallet);
+    event RoyaltyInfoUpdated(address indexed recipient, uint256 percentage);
+    event NFTMinted(address indexed to, uint256 indexed tokenId, string metadataURI, address indexed creator);
     
     /**
      * @dev Constructor
      * @param _name The name of the NFT collection
      * @param _symbol The symbol of the NFT collection
      * @param _admin The address that will have admin role
+     * @param _safeWallet The Safe multisig wallet address
      */
     constructor(
         string memory _name,
         string memory _symbol,
-        address _admin
+        address _admin,
+        address _safeWallet
     ) ERC721(_name, _symbol) {
+        require(_admin != address(0), "MemeCollection: Invalid admin address");
+        require(_safeWallet != address(0), "MemeCollection: Invalid Safe wallet address");
+        
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(ADMIN_ROLE, _admin);
+        
+        safeWallet = _safeWallet;
+        adminRecipient = _safeWallet;
         
         // Start token IDs from 1
         _tokenIdCounter.increment();
@@ -67,6 +89,39 @@ contract MemeCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCon
     }
     
     /**
+     * @dev Set the Safe multisig wallet address
+     * @param _safeWallet The address of the Safe wallet
+     * @notice Can only be called by admin
+     */
+    function setSafeWallet(address _safeWallet) external onlyRole(ADMIN_ROLE) {
+        require(_safeWallet != address(0), "MemeCollection: Invalid Safe wallet address");
+        safeWallet = _safeWallet;
+        emit SafeWalletSet(_safeWallet);
+    }
+    
+    /**
+     * @dev Update royalty information
+     * @param _adminRecipient Address to receive admin royalties (Safe wallet)
+     * @param _totalPercentage Total royalty percentage in basis points
+     * @notice Can only be called by admin
+     * @notice Creator percentage is automatically set to 50% of total
+     */
+    function updateRoyaltyInfo(address _adminRecipient, uint256 _totalPercentage) external onlyRole(ADMIN_ROLE) {
+        require(_adminRecipient != address(0), "MemeCollection: Invalid admin recipient address");
+        require(_totalPercentage <= 1000, "MemeCollection: Royalty percentage too high"); // Max 10%
+        require(_totalPercentage % 2 == 0, "MemeCollection: Total percentage must be even for 50/50 split");
+        
+        uint256 halfPercentage = _totalPercentage / 2;
+        
+        adminRecipient = _adminRecipient;
+        totalRoyaltyPercentage = _totalPercentage;
+        adminRoyaltyPercentage = halfPercentage;
+        creatorRoyaltyPercentage = halfPercentage;
+        
+        emit RoyaltyInfoUpdated(_adminRecipient, _totalPercentage);
+    }
+    
+    /**
      * @dev Mint NFT to a user
      * @param to The address to mint the NFT to
      * @param metadataURI The metadata URI for the NFT
@@ -82,10 +137,13 @@ contract MemeCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCon
         
         userMintCount[to]++;
         
+        // Track the creator (first minter)
+        tokenCreator[tokenId] = to;
+        
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, metadataURI);
         
-        emit NFTMinted(to, tokenId, metadataURI);
+        emit NFTMinted(to, tokenId, metadataURI, to);
     }
     
     /**
@@ -141,7 +199,50 @@ contract MemeCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCon
         return super.tokenURI(tokenId);
     }
     
-    function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl) returns (bool) {
-        return super.supportsInterface(interfaceId);
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl, IERC165) returns (bool) {
+        return interfaceId == type(IERC2981).interfaceId || super.supportsInterface(interfaceId);
+    }
+    
+    /**
+     * @dev Get royalty information for a token (ERC-2981)
+     * @param tokenId The token ID
+     * @param salePrice The sale price
+     * @return receiver The address to receive royalties (admin for now, creator per token in future)
+     * @return royaltyAmount The royalty amount
+     */
+    function royaltyInfo(uint256 tokenId, uint256 salePrice) external view override returns (address receiver, uint256 royaltyAmount) {
+        receiver = adminRecipient; // For now, return admin recipient
+        royaltyAmount = (salePrice * totalRoyaltyPercentage) / 10000;
+    }
+    
+    /**
+     * @dev Get split royalty information for a token
+     * @param tokenId The token ID
+     * @param salePrice The sale price
+     * @return adminReceiver The admin address to receive royalties
+     * @return creatorReceiver The creator address to receive royalties
+     * @return adminAmount The admin royalty amount
+     * @return creatorAmount The creator royalty amount
+     */
+    function getSplitRoyaltyInfo(uint256 tokenId, uint256 salePrice) external view returns (
+        address adminReceiver,
+        address creatorReceiver,
+        uint256 adminAmount,
+        uint256 creatorAmount
+    ) {
+        adminReceiver = adminRecipient;
+        creatorReceiver = tokenCreator[tokenId] != address(0) ? tokenCreator[tokenId] : adminRecipient; // Fallback to admin if no creator
+        adminAmount = (salePrice * adminRoyaltyPercentage) / 10000;
+        creatorAmount = (salePrice * creatorRoyaltyPercentage) / 10000;
+    }
+    
+    /**
+     * @dev Get the creator of a specific token
+     * @param tokenId The token ID
+     * @return The address of the creator
+     */
+    function getTokenCreator(uint256 tokenId) external view returns (address) {
+        require(_exists(tokenId), "MemeCollection: Token does not exist");
+        return tokenCreator[tokenId];
     }
 }
