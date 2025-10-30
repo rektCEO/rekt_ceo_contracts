@@ -17,8 +17,8 @@ describe("MemeCollection", function () {
     [owner, minter, user1, user2] = await ethers.getSigners();
 
     const MemeCollection = await ethers.getContractFactory("MemeCollection");
-    memeCollection = await MemeCollection.deploy(COLLECTION_NAME, COLLECTION_SYMBOL, owner.address);
-    await memeCollection.deployed();
+    memeCollection = await MemeCollection.deploy(COLLECTION_NAME, COLLECTION_SYMBOL, owner.address, owner.address);
+    await memeCollection.waitForDeployment();
   });
 
   describe("Deployment", function () {
@@ -52,7 +52,7 @@ describe("MemeCollection", function () {
     });
 
     it("Should not allow setting zero address as minter", async function () {
-      await expect(memeCollection.setMinterContract(ethers.constants.AddressZero))
+      await expect(memeCollection.setMinterContract(ethers.ZeroAddress))
         .to.be.revertedWith("MemeCollection: Invalid minter contract address");
     });
 
@@ -79,7 +79,7 @@ describe("MemeCollection", function () {
     });
 
     it("Should not allow minting to zero address", async function () {
-      await expect(memeCollection.connect(minter).mintForUser(ethers.constants.AddressZero, "metadata"))
+      await expect(memeCollection.connect(minter).mintForUser(ethers.ZeroAddress, "metadata"))
         .to.be.revertedWith("MemeCollection: Cannot mint to zero address");
     });
 

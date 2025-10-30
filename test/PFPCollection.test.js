@@ -17,8 +17,8 @@ describe("PFPCollection", function () {
     [owner, minter, user1, user2] = await ethers.getSigners();
 
     const PFPCollection = await ethers.getContractFactory("PFPCollection");
-    pfpCollection = await PFPCollection.deploy(COLLECTION_NAME, COLLECTION_SYMBOL, owner.address);
-    await pfpCollection.deployed();
+    pfpCollection = await PFPCollection.deploy(COLLECTION_NAME, COLLECTION_SYMBOL, owner.address, owner.address);
+    await pfpCollection.waitForDeployment();
   });
 
   describe("Deployment", function () {
@@ -52,7 +52,7 @@ describe("PFPCollection", function () {
     });
 
     it("Should not allow setting zero address as minter", async function () {
-      await expect(pfpCollection.setMinterContract(ethers.constants.AddressZero))
+      await expect(pfpCollection.setMinterContract(ethers.ZeroAddress))
         .to.be.revertedWith("PFPCollection: Invalid minter contract address");
     });
 
@@ -79,7 +79,7 @@ describe("PFPCollection", function () {
     });
 
     it("Should not allow minting to zero address", async function () {
-      await expect(pfpCollection.connect(minter).mintForUser(ethers.constants.AddressZero, "metadata"))
+      await expect(pfpCollection.connect(minter).mintForUser(ethers.ZeroAddress, "metadata"))
         .to.be.revertedWith("PFPCollection: Cannot mint to zero address");
     });
 

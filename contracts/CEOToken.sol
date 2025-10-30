@@ -37,6 +37,12 @@ contract CEOToken is ERC20, ERC20Permit, Ownable, ReentrancyGuard {
         uint256 communitySupply = (MAX_SUPPLY * 97) / 100;
         _mint(_owner, communitySupply);
     }
+
+    //Allow contract to receive ETH for recovery testing
+
+    receive() external payable {}
+
+    
     
     /**
      * @dev Set the dev wallet and calculate allocation

@@ -90,7 +90,7 @@ describe("CEOToken", function () {
     it("Should not allow minting before dev wallet is set", async function () {
       const CEOToken = await ethers.getContractFactory("CEOToken");
       const newCeoToken = await CEOToken.deploy(owner.address);
-      await newCeoToken.deployed();
+      await newCeoToken.waitForDeployment();
 
       await expect(newCeoToken.mintDevAllocation())
         .to.be.revertedWith("CEOToken: Dev wallet not set");
@@ -156,9 +156,10 @@ describe("CEOToken", function () {
 
       // Send tokens to CEO contract
       await mockToken.transfer(await ceoToken.getAddress(), ethers.parseEther("1000"));
-
+      const ownerMid = await mockToken.balanceOf(owner.address);
       await ceoToken.recoverStuckTokens(await mockToken.getAddress(), ethers.parseEther("1000"));
-      expect(await mockToken.balanceOf(owner.address)).to.equal(ethers.parseEther("1000"));
+      const ownerAfter = await mockToken.balanceOf(owner.address);
+      expect(ownerAfter - ownerMid).to.equal(ethers.parseEther("1000"));
     });
 
     it("Should not allow recovering CEO tokens", async function () {
@@ -177,7 +178,7 @@ describe("CEOToken", function () {
       const domain = {
         name: "Rekt CEO",
         version: "1",
-        chainId: await owner.provider.getNetwork().then(n => n.chainId),
+        chainId: Number(await owner.provider.getNetwork().then(n => n.chainId)),
         verifyingContract: await ceoToken.getAddress(),
       };
 
@@ -199,6 +200,8 @@ describe("CEOToken", function () {
         deadline: Math.floor(Date.now() / 1000) + 3600,
       };
 
+      // Extend deadline to ensure no expiry
+      value.deadline = Math.floor(Date.now() / 1000) + 86400;
       const signature = await owner.signTypedData(domain, types, value);
       const { v, r, s } = ethers.Signature.from(signature);
 
@@ -218,7 +221,3 @@ describe("CEOToken", function () {
   });
 });
 
-// Mock ERC-20 contract for testing
-contract("MockERC20", function () {
-  // This would be a separate contract file in a real project
-});
