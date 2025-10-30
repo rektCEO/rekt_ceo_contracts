@@ -5,6 +5,7 @@ typechain
 coverage
 coverage.json
 gasReporterOutput.json
+yarn.lock
 
 .env
 .env.local
