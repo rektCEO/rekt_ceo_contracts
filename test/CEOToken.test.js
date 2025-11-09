@@ -90,7 +90,7 @@ describe("CEOToken", function () {
     it("Should not allow minting before dev wallet is set", async function () {
       const CEOToken = await ethers.getContractFactory("CEOToken");
       const newCeoToken = await CEOToken.deploy(owner.address);
-      await newCeoToken.deployed();
+      await newCeoToken.waitForDeployment();
 
       await expect(newCeoToken.mintDevAllocation())
         .to.be.revertedWith("CEOToken: Dev wallet not set");
@@ -134,18 +134,12 @@ describe("CEOToken", function () {
   });
 
   describe("Token Recovery", function () {
-    it("Should allow owner to recover stuck ETH", async function () {
-      // Send ETH to contract
-      await user1.sendTransaction({
+    it("Should prevent sending ETH to contract", async function () {
+      // Attempt to send ETH to contract should fail
+      await expect(user1.sendTransaction({
         to: await ceoToken.getAddress(),
         value: ethers.parseEther("1")
-      });
-
-      const balanceBefore = await owner.provider.getBalance(owner.address);
-      await ceoToken.recoverStuckTokens(ethers.ZeroAddress, ethers.parseEther("1"));
-      const balanceAfter = await owner.provider.getBalance(owner.address);
-
-      expect(balanceAfter).to.be.gt(balanceBefore);
+      })).to.be.reverted;
     });
 
     it("Should allow owner to recover stuck ERC-20 tokens", async function () {
@@ -156,9 +150,10 @@ describe("CEOToken", function () {
 
       // Send tokens to CEO contract
       await mockToken.transfer(await ceoToken.getAddress(), ethers.parseEther("1000"));
-
+      const ownerMid = await mockToken.balanceOf(owner.address);
       await ceoToken.recoverStuckTokens(await mockToken.getAddress(), ethers.parseEther("1000"));
-      expect(await mockToken.balanceOf(owner.address)).to.equal(ethers.parseEther("1000"));
+      const ownerAfter = await mockToken.balanceOf(owner.address);
+      expect(ownerAfter - ownerMid).to.equal(ethers.parseEther("1000"));
     });
 
     it("Should not allow recovering CEO tokens", async function () {
@@ -166,8 +161,18 @@ describe("CEOToken", function () {
         .to.be.revertedWith("CEOToken: Cannot recover CEO tokens");
     });
 
+    it("Should not allow zero address as token", async function () {
+      await expect(ceoToken.recoverStuckTokens(ethers.ZeroAddress, ethers.parseEther("1")))
+        .to.be.revertedWith("CEOToken: Invalid token address");
+    });
+
     it("Should not allow non-owner to recover tokens", async function () {
-      await expect(ceoToken.connect(user1).recoverStuckTokens(ethers.ZeroAddress, ethers.parseEther("1")))
+      // Deploy a mock ERC-20 token
+      const MockToken = await ethers.getContractFactory("MockERC20");
+      const mockToken = await MockToken.deploy("Mock Token", "MOCK");
+      await mockToken.waitForDeployment();
+      
+      await expect(ceoToken.connect(user1).recoverStuckTokens(await mockToken.getAddress(), ethers.parseEther("1")))
         .to.be.revertedWith("Ownable: caller is not the owner");
     });
   });
@@ -177,7 +182,7 @@ describe("CEOToken", function () {
       const domain = {
         name: "Rekt CEO",
         version: "1",
-        chainId: await owner.provider.getNetwork().then(n => n.chainId),
+        chainId: Number(await owner.provider.getNetwork().then(n => n.chainId)),
         verifyingContract: await ceoToken.getAddress(),
       };
 
@@ -191,12 +196,16 @@ describe("CEOToken", function () {
         ],
       };
 
+      // Get blockchain time instead of system time
+      const latestBlock = await ethers.provider.getBlock('latest');
+      const deadline = latestBlock.timestamp + 86400; // 1 day from now
+
       const value = {
         owner: owner.address,
         spender: user1.address,
         value: ethers.parseEther("1000"),
         nonce: await ceoToken.nonces(owner.address),
-        deadline: Math.floor(Date.now() / 1000) + 3600,
+        deadline: deadline,
       };
 
       const signature = await owner.signTypedData(domain, types, value);
@@ -218,7 +227,3 @@ describe("CEOToken", function () {
   });
 });
 
-// Mock ERC-20 contract for testing
-contract("MockERC20", function () {
-  // This would be a separate contract file in a real project
-});

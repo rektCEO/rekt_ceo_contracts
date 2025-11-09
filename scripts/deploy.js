@@ -16,12 +16,18 @@ async function main() {
         devWallet: deployer.address, // Replace with dev wallet address
         approver: deployer.address, // Backend wallet address
         rescuer: deployer.address, // Rescuer wallet address
+        safeWallet: deployer.address, // Safe (Gnosis) wallet for royalties
         
         // NFT Collection names and symbols
         pfpName: "Rekt CEO PFPs",
         pfpSymbol: "RCPFP",
+        pfpMaxSupply: 999,
+        pfpMaxMintPerUser: 2,
         memeName: "Rekt CEO Memes",
-        memeSymbol: "RCMEME"
+        memeSymbol: "RCMEME",
+        memeMaxSupply: 9999,
+        memeMaxMintPerUser: 9,
+        royaltyPercentage: 210 // 2.1% total (split 50/50 = 1.05% each for protocol and creator)
     };
     
     console.log("\n=== Deployment Configuration ===");
@@ -43,25 +49,39 @@ async function main() {
         
         // 2. Deploy PFP Collection
         console.log("\n=== Deploying PFP Collection ===");
-        const PFPCollection = await ethers.getContractFactory("PFPCollection");
-        const pfpCollection = await PFPCollection.deploy(
+        const NFTCollection = await ethers.getContractFactory("NFTCollection");
+        const pfpCollection = await NFTCollection.deploy(
             DEPLOYMENT_CONFIG.pfpName,
             DEPLOYMENT_CONFIG.pfpSymbol,
-            DEPLOYMENT_CONFIG.admin
+            DEPLOYMENT_CONFIG.admin,
+            DEPLOYMENT_CONFIG.safeWallet,
+            DEPLOYMENT_CONFIG.pfpMaxSupply,
+            DEPLOYMENT_CONFIG.pfpMaxMintPerUser,
+            DEPLOYMENT_CONFIG.royaltyPercentage
         );
         await pfpCollection.waitForDeployment();
         console.log("PFP Collection deployed to:", await pfpCollection.getAddress());
         
         // 3. Deploy Meme Collection
         console.log("\n=== Deploying Meme Collection ===");
-        const MemeCollection = await ethers.getContractFactory("MemeCollection");
-        const memeCollection = await MemeCollection.deploy(
+        const memeCollection = await NFTCollection.deploy(
             DEPLOYMENT_CONFIG.memeName,
             DEPLOYMENT_CONFIG.memeSymbol,
-            DEPLOYMENT_CONFIG.admin
+            DEPLOYMENT_CONFIG.admin,
+            DEPLOYMENT_CONFIG.safeWallet,
+            DEPLOYMENT_CONFIG.memeMaxSupply,
+            DEPLOYMENT_CONFIG.memeMaxMintPerUser,
+            DEPLOYMENT_CONFIG.royaltyPercentage
         );
         await memeCollection.waitForDeployment();
         console.log("Meme Collection deployed to:", await memeCollection.getAddress());
+
+        // 3.5 Deploy Mock USDC for testing / use provided address in prod
+        console.log("\n=== Deploying Mock USDC (testing) ===");
+        const MockERC20 = await ethers.getContractFactory("MockERC20");
+        const usdc = await MockERC20.deploy("MockUSDC", "USDC");
+        await usdc.waitForDeployment();
+        console.log("Mock USDC deployed to:", await usdc.getAddress());
         
         // 4. Deploy Minter Contract
         console.log("\n=== Deploying Minter Contract ===");
@@ -70,7 +90,9 @@ async function main() {
             await ceoToken.getAddress(),
             await pfpCollection.getAddress(),
             await memeCollection.getAddress(),
+            await usdc.getAddress(),
             DEPLOYMENT_CONFIG.treasury,
+            DEPLOYMENT_CONFIG.safeWallet,
             DEPLOYMENT_CONFIG.admin
         );
         await minterContract.waitForDeployment();
@@ -90,6 +112,7 @@ async function main() {
         console.log("Granting roles in Minter Contract...");
         await minterContract.grantRole(await minterContract.APPROVER_ROLE(), DEPLOYMENT_CONFIG.approver);
         await minterContract.grantRole(await minterContract.RESCUER_ROLE(), DEPLOYMENT_CONFIG.rescuer);
+        await minterContract.grantRole(await minterContract.PRICE_UPDATER_ROLE(), DEPLOYMENT_CONFIG.admin);
         
         // Set dev wallet in CEO Token
         console.log("Setting dev wallet in CEO Token...");

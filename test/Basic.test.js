@@ -19,14 +19,18 @@ describe("Rekt CEO Basic Tests", function () {
     await ceoToken.waitForDeployment();
 
     // Deploy PFP Collection
-    const PFPCollection = await ethers.getContractFactory("PFPCollection");
-    pfpCollection = await PFPCollection.deploy("Rekt CEO PFPs", "RCPFP", owner.address);
+    const NFTCollection = await ethers.getContractFactory("NFTCollection");
+    pfpCollection = await NFTCollection.deploy("Rekt CEO PFPs", "RCPFP", owner.address, owner.address, 999, 2, 210);
     await pfpCollection.waitForDeployment();
 
     // Deploy Meme Collection
-    const MemeCollection = await ethers.getContractFactory("MemeCollection");
-    memeCollection = await MemeCollection.deploy("Rekt CEO Memes", "RCMEME", owner.address);
+    memeCollection = await NFTCollection.deploy("Rekt CEO Memes", "RCMEME", owner.address, owner.address, 9999, 9, 210);
     await memeCollection.waitForDeployment();
+
+    // Deploy Mock USDC
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const usdc = await MockERC20.deploy("MockUSDC", "USDC");
+    await usdc.waitForDeployment();
 
     // Deploy Minter Contract
     const MinterContract = await ethers.getContractFactory("MinterContract");
@@ -34,7 +38,9 @@ describe("Rekt CEO Basic Tests", function () {
       await ceoToken.getAddress(),
       await pfpCollection.getAddress(),
       await memeCollection.getAddress(),
+      await usdc.getAddress(),
       owner.address, // treasury
+      owner.address, // safe wallet
       owner.address  // admin
     );
     await minterContract.waitForDeployment();
@@ -135,7 +141,7 @@ describe("Rekt CEO Basic Tests", function () {
     it("Should allow minting PFP NFT", async function () {
       const metadataURI = "https://example.com/pfp/metadata/1";
 
-      // Owner (who has APPROVER_ROLE) calls mintNFT for user1
+      // Owner (who has APPROVER_ROLE) calls mintNFT for owner
       await minterContract.mintNFT(0, 1, metadataURI);
 
       expect(await pfpCollection.ownerOf(1)).to.equal(owner.address);
@@ -145,7 +151,7 @@ describe("Rekt CEO Basic Tests", function () {
     it("Should allow minting Meme NFT", async function () {
       const metadataURI = "https://example.com/meme/metadata/1";
 
-      // Owner (who has APPROVER_ROLE) calls mintNFT for user1
+      // Owner (who has APPROVER_ROLE) calls mintNFT for owner
       await minterContract.mintNFT(1, 1, metadataURI);
 
       expect(await memeCollection.ownerOf(1)).to.equal(owner.address);
@@ -161,7 +167,7 @@ describe("Rekt CEO Basic Tests", function () {
 
       // Try to mint third (should fail)
       await expect(minterContract.mintNFT(0, 1, metadataURI + "3"))
-        .to.be.revertedWith("PFPCollection: User mint limit reached");
+        .to.be.revertedWith("NFTCollection: User mint limit reached");
     });
   });
 });

@@ -1,6 +1,28 @@
 node_modules
 artifacts
 cache
+typechain
+coverage
+coverage.json
+gasReporterOutput.json
+yarn.lock
 
 .env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# Hardhat
+deployments/
