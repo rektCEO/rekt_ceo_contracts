@@ -29,7 +29,6 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
     // State variables
     Counters.Counter private _tokenIdCounter;
     address public minterContract;
-    address public safeWallet;
     
     // Royalty configuration - Always split 50/50 between protocol and creator
     address public protocolRoyaltyRecipient;  // Receives 50% of royalties (typically Safe wallet)
@@ -43,7 +42,6 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
     
     // Events
     event MinterContractSet(address indexed minterContract);
-    event SafeWalletSet(address indexed safeWallet);
     event RoyaltyInfoUpdated(address indexed recipient, uint256 percentage);
     event NFTMinted(address indexed to, uint256 indexed tokenId, string metadataURI, address indexed creator);
     
@@ -76,7 +74,6 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(ADMIN_ROLE, _admin);
         
-        safeWallet = _safeWallet;
         protocolRoyaltyRecipient = _safeWallet;
         totalRoyaltyPercentage = _totalRoyaltyPercentage;
         MAX_SUPPLY = _maxSupply;
@@ -99,16 +96,6 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
         emit MinterContractSet(_minterContract);
     }
 
-    /**
-     * @dev Set the Safe multisig wallet address
-     * @param _safeWallet The address of the Safe wallet
-     * @notice Can only be called by admin
-     */
-    function setSafeWallet(address _safeWallet) external onlyRole(ADMIN_ROLE) {
-        require(_safeWallet != address(0), "NFTCollection: Invalid Safe wallet address");
-        safeWallet = _safeWallet;
-        emit SafeWalletSet(_safeWallet);
-    }
 
     /**
      * @dev Update royalty information
