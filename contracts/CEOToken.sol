@@ -34,15 +34,9 @@ contract CEOToken is ERC20, ERC20Permit, Ownable, ReentrancyGuard {
         _transferOwnership(_owner);
         
         // Mint 97% of supply to owner (community treasury)
-        uint256 communitySupply = (MAX_SUPPLY * 97) / 100;
+        uint256 communitySupply = (MAX_SUPPLY * (100 - DEV_ALLOCATION_PERCENTAGE)) / 100;
         _mint(_owner, communitySupply);
     }
-
-    //Allow contract to receive ETH for recovery testing
-
-    receive() external payable {}
-
-    
     
     /**
      * @dev Set the dev wallet and calculate allocation
@@ -84,21 +78,16 @@ contract CEOToken is ERC20, ERC20Permit, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Recover stuck tokens (only owner can call)
+     * @dev Recover stuck ERC-20 tokens (only owner can call)
      * @param token The address of the token to recover
      * @param amount The amount to recover
      */
     function recoverStuckTokens(address token, uint256 amount) external onlyOwner nonReentrant {
+        require(token != address(0), "CEOToken: Invalid token address");
         require(token != address(this), "CEOToken: Cannot recover CEO tokens");
         
-        if (token == address(0)) {
-            // Recover ETH
-            require(address(this).balance >= amount, "CEOToken: Insufficient ETH balance");
-            payable(owner()).transfer(amount);
-        } else {
-            // Recover ERC-20 tokens
-            IERC20(token).transfer(owner(), amount);
-        }
+        // Recover ERC-20 tokens
+        IERC20(token).transfer(owner(), amount);
         
         emit StuckTokensRecovered(token, amount);
     }

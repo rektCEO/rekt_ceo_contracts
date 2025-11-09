@@ -26,13 +26,12 @@ describe("MinterContract", function () {
     await ceoToken.waitForDeployment();
 
     // Deploy PFP Collection
-    const PFPCollection = await ethers.getContractFactory("PFPCollection");
-    pfpCollection = await PFPCollection.deploy("Rekt CEO PFPs", "RCPFP", owner.address, owner.address);
+    const NFTCollection = await ethers.getContractFactory("NFTCollection");
+    pfpCollection = await NFTCollection.deploy("Rekt CEO PFPs", "RCPFP", owner.address, owner.address, 999, 2, 210);
     await pfpCollection.waitForDeployment();
 
     // Deploy Meme Collection
-    const MemeCollection = await ethers.getContractFactory("MemeCollection");
-    memeCollection = await MemeCollection.deploy("Rekt CEO Memes", "RCMEME", owner.address, owner.address);
+    memeCollection = await NFTCollection.deploy("Rekt CEO Memes", "RCMEME", owner.address, owner.address, 9999, 9, 210);
     await memeCollection.waitForDeployment();
 
     // Deploy Minter Contract

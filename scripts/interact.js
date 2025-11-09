@@ -17,22 +17,28 @@ async function main() {
     await ceoToken.waitForDeployment();
     console.log("CEO Token deployed to:", await ceoToken.getAddress());
     
-    const PFPCollection = await ethers.getContractFactory("PFPCollection");
-    const pfpCollection = await PFPCollection.deploy("Rekt CEO PFPs", "RCPFP", owner.address);
+    const NFTCollection = await ethers.getContractFactory("NFTCollection");
+    const pfpCollection = await NFTCollection.deploy("Rekt CEO PFPs", "RCPFP", owner.address, owner.address, 999, 2, 210);
     await pfpCollection.waitForDeployment();
     console.log("PFP Collection deployed to:", await pfpCollection.getAddress());
     
-    const MemeCollection = await ethers.getContractFactory("MemeCollection");
-    const memeCollection = await MemeCollection.deploy("Rekt CEO Memes", "RCMEME", owner.address);
+    const memeCollection = await NFTCollection.deploy("Rekt CEO Memes", "RCMEME", owner.address, owner.address, 9999, 9, 210);
     await memeCollection.waitForDeployment();
     console.log("Meme Collection deployed to:", await memeCollection.getAddress());
+    
+    // Deploy Mock USDC
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const usdc = await MockERC20.deploy("MockUSDC", "USDC");
+    await usdc.waitForDeployment();
     
     const MinterContract = await ethers.getContractFactory("MinterContract");
     const minterContract = await MinterContract.deploy(
         await ceoToken.getAddress(),
         await pfpCollection.getAddress(),
         await memeCollection.getAddress(),
+        await usdc.getAddress(),
         owner.address, // treasury
+        owner.address, // safe wallet
         owner.address  // admin
     );
     await minterContract.waitForDeployment();

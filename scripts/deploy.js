@@ -21,8 +21,13 @@ async function main() {
         // NFT Collection names and symbols
         pfpName: "Rekt CEO PFPs",
         pfpSymbol: "RCPFP",
+        pfpMaxSupply: 999,
+        pfpMaxMintPerUser: 2,
         memeName: "Rekt CEO Memes",
-        memeSymbol: "RCMEME"
+        memeSymbol: "RCMEME",
+        memeMaxSupply: 9999,
+        memeMaxMintPerUser: 9,
+        royaltyPercentage: 210 // 2.1% total (split 50/50 = 1.05% each for protocol and creator)
     };
     
     console.log("\n=== Deployment Configuration ===");
@@ -44,24 +49,29 @@ async function main() {
         
         // 2. Deploy PFP Collection
         console.log("\n=== Deploying PFP Collection ===");
-        const PFPCollection = await ethers.getContractFactory("PFPCollection");
-        const pfpCollection = await PFPCollection.deploy(
+        const NFTCollection = await ethers.getContractFactory("NFTCollection");
+        const pfpCollection = await NFTCollection.deploy(
             DEPLOYMENT_CONFIG.pfpName,
             DEPLOYMENT_CONFIG.pfpSymbol,
             DEPLOYMENT_CONFIG.admin,
-            DEPLOYMENT_CONFIG.safeWallet
+            DEPLOYMENT_CONFIG.safeWallet,
+            DEPLOYMENT_CONFIG.pfpMaxSupply,
+            DEPLOYMENT_CONFIG.pfpMaxMintPerUser,
+            DEPLOYMENT_CONFIG.royaltyPercentage
         );
         await pfpCollection.waitForDeployment();
         console.log("PFP Collection deployed to:", await pfpCollection.getAddress());
         
         // 3. Deploy Meme Collection
         console.log("\n=== Deploying Meme Collection ===");
-        const MemeCollection = await ethers.getContractFactory("MemeCollection");
-        const memeCollection = await MemeCollection.deploy(
+        const memeCollection = await NFTCollection.deploy(
             DEPLOYMENT_CONFIG.memeName,
             DEPLOYMENT_CONFIG.memeSymbol,
             DEPLOYMENT_CONFIG.admin,
-            DEPLOYMENT_CONFIG.safeWallet
+            DEPLOYMENT_CONFIG.safeWallet,
+            DEPLOYMENT_CONFIG.memeMaxSupply,
+            DEPLOYMENT_CONFIG.memeMaxMintPerUser,
+            DEPLOYMENT_CONFIG.royaltyPercentage
         );
         await memeCollection.waitForDeployment();
         console.log("Meme Collection deployed to:", await memeCollection.getAddress());

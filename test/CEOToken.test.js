@@ -134,18 +134,12 @@ describe("CEOToken", function () {
   });
 
   describe("Token Recovery", function () {
-    it("Should allow owner to recover stuck ETH", async function () {
-      // Send ETH to contract
-      await user1.sendTransaction({
+    it("Should prevent sending ETH to contract", async function () {
+      // Attempt to send ETH to contract should fail
+      await expect(user1.sendTransaction({
         to: await ceoToken.getAddress(),
         value: ethers.parseEther("1")
-      });
-
-      const balanceBefore = await owner.provider.getBalance(owner.address);
-      await ceoToken.recoverStuckTokens(ethers.ZeroAddress, ethers.parseEther("1"));
-      const balanceAfter = await owner.provider.getBalance(owner.address);
-
-      expect(balanceAfter).to.be.gt(balanceBefore);
+      })).to.be.reverted;
     });
 
     it("Should allow owner to recover stuck ERC-20 tokens", async function () {
@@ -167,8 +161,18 @@ describe("CEOToken", function () {
         .to.be.revertedWith("CEOToken: Cannot recover CEO tokens");
     });
 
+    it("Should not allow zero address as token", async function () {
+      await expect(ceoToken.recoverStuckTokens(ethers.ZeroAddress, ethers.parseEther("1")))
+        .to.be.revertedWith("CEOToken: Invalid token address");
+    });
+
     it("Should not allow non-owner to recover tokens", async function () {
-      await expect(ceoToken.connect(user1).recoverStuckTokens(ethers.ZeroAddress, ethers.parseEther("1")))
+      // Deploy a mock ERC-20 token
+      const MockToken = await ethers.getContractFactory("MockERC20");
+      const mockToken = await MockToken.deploy("Mock Token", "MOCK");
+      await mockToken.waitForDeployment();
+      
+      await expect(ceoToken.connect(user1).recoverStuckTokens(await mockToken.getAddress(), ethers.parseEther("1")))
         .to.be.revertedWith("Ownable: caller is not the owner");
     });
   });
@@ -192,16 +196,18 @@ describe("CEOToken", function () {
         ],
       };
 
+      // Get blockchain time instead of system time
+      const latestBlock = await ethers.provider.getBlock('latest');
+      const deadline = latestBlock.timestamp + 86400; // 1 day from now
+
       const value = {
         owner: owner.address,
         spender: user1.address,
         value: ethers.parseEther("1000"),
         nonce: await ceoToken.nonces(owner.address),
-        deadline: Math.floor(Date.now() / 1000) + 3600,
+        deadline: deadline,
       };
 
-      // Extend deadline to ensure no expiry
-      value.deadline = Math.floor(Date.now() / 1000) + 86400;
       const signature = await owner.signTypedData(domain, types, value);
       const { v, r, s } = ethers.Signature.from(signature);
 

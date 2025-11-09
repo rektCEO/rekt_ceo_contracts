@@ -10,12 +10,11 @@ describe("Royalties, Price Update, and Swap Config", function () {
     ceoToken = await CEOToken.deploy(owner.address);
     await ceoToken.waitForDeployment();
 
-    const PFP = await ethers.getContractFactory("PFPCollection");
-    pfp = await PFP.deploy("PFP", "PFP", owner.address, owner.address);
+    const NFTCollection = await ethers.getContractFactory("NFTCollection");
+    pfp = await NFTCollection.deploy("PFP", "PFP", owner.address, owner.address, 999, 2, 210);
     await pfp.waitForDeployment();
 
-    const Meme = await ethers.getContractFactory("MemeCollection");
-    meme = await Meme.deploy("MEME", "MEME", owner.address, owner.address);
+    meme = await NFTCollection.deploy("MEME", "MEME", owner.address, owner.address, 9999, 9, 210);
     await meme.waitForDeployment();
 
     const MockERC20 = await ethers.getContractFactory("MockERC20");

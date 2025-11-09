@@ -15,19 +15,24 @@ async function main() {
     const ceoToken = await CEOToken.deploy(owner.address);
     await ceoToken.waitForDeployment();
     
-    const PFPCollection = await ethers.getContractFactory("PFPCollection");
-    const pfpCollection = await PFPCollection.deploy("Rekt CEO PFPs", "RCPFP", owner.address);
+    const NFTCollection = await ethers.getContractFactory("NFTCollection");
+    const pfpCollection = await NFTCollection.deploy("Rekt CEO PFPs", "RCPFP", owner.address, owner.address, 999, 2, 210);
     await pfpCollection.waitForDeployment();
     
-    const MemeCollection = await ethers.getContractFactory("MemeCollection");
-    const memeCollection = await MemeCollection.deploy("Rekt CEO Memes", "RCMEME", owner.address);
+    const memeCollection = await NFTCollection.deploy("Rekt CEO Memes", "RCMEME", owner.address, owner.address, 9999, 9, 210);
     await memeCollection.waitForDeployment();
+    
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const usdc = await MockERC20.deploy("MockUSDC", "USDC");
+    await usdc.waitForDeployment();
     
     const MinterContract = await ethers.getContractFactory("MinterContract");
     const minterContract = await MinterContract.deploy(
         await ceoToken.getAddress(),
         await pfpCollection.getAddress(),
         await memeCollection.getAddress(),
+        await usdc.getAddress(),
+        owner.address,
         owner.address,
         owner.address
     );
