@@ -40,7 +40,6 @@ describe("Rekt CEO Basic Tests", function () {
       await memeCollection.getAddress(),
       await usdc.getAddress(),
       owner.address, // treasury
-      owner.address, // safe wallet
       owner.address  // admin
     );
     await minterContract.waitForDeployment();
@@ -109,26 +108,32 @@ describe("Rekt CEO Basic Tests", function () {
 
   describe("Minter Contract", function () {
     it("Should have correct CEO price", async function () {
-      const ceoPrice = await minterContract.ceoPriceUSD();
-      expect(ceoPrice).to.equal(ethers.parseEther("1"));
+      const ceoPrice = await minterContract.getCEOUSDCPrice();
+      expect(ceoPrice).to.equal(ethers.parseEther("0.567")); // Mock price from contract
     });
 
-    it("Should have default tiers", async function () {
+    it("Should have default tiers with supply limits", async function () {
       const pfpTier1 = await minterContract.tiers(0, 1); // PFP tier 1
       expect(pfpTier1.priceUSD).to.equal(ethers.parseEther("50"));
-      expect(pfpTier1.active).to.be.true;
+      expect(pfpTier1.supplyLimit).to.equal(500);
+      expect(pfpTier1.startSupply).to.equal(0);
 
       const memeTier1 = await minterContract.tiers(1, 1); // MEME tier 1
       expect(memeTier1.priceUSD).to.equal(ethers.parseEther("5"));
-      expect(memeTier1.active).to.be.true;
+      expect(memeTier1.supplyLimit).to.equal(5000);
+      expect(memeTier1.startSupply).to.equal(0);
     });
 
     it("Should calculate correct prices", async function () {
-      const pfpPrice = await minterContract.getPriceInCEO(0, 1); // PFP tier 1
-      expect(pfpPrice).to.equal(ethers.parseEther("50"));
+      const pfpPrice = await minterContract.getNFTPriceInCEO(0); // PFP
+      // $50 / $0.567 per CEO = ~88.18 CEO tokens
+      const expectedPfpPrice = (ethers.parseEther("50") * ethers.parseEther("1")) / ethers.parseEther("0.567");
+      expect(pfpPrice).to.equal(expectedPfpPrice);
 
-      const memePrice = await minterContract.getPriceInCEO(1, 1); // MEME tier 1
-      expect(memePrice).to.equal(ethers.parseEther("5"));
+      const memePrice = await minterContract.getNFTPriceInCEO(1); // MEME
+      // $5 / $0.567 per CEO = ~8.818 CEO tokens
+      const expectedMemePrice = (ethers.parseEther("5") * ethers.parseEther("1")) / ethers.parseEther("0.567");
+      expect(memePrice).to.equal(expectedMemePrice);
     });
   });
 
@@ -142,7 +147,7 @@ describe("Rekt CEO Basic Tests", function () {
       const metadataURI = "https://example.com/pfp/metadata/1";
 
       // Owner (who has APPROVER_ROLE) calls mintNFT for owner
-      await minterContract.mintNFT(0, 1, metadataURI);
+      await minterContract.mintNFT(0, metadataURI);
 
       expect(await pfpCollection.ownerOf(1)).to.equal(owner.address);
       expect(await pfpCollection.tokenURI(1)).to.equal(metadataURI);
@@ -152,7 +157,7 @@ describe("Rekt CEO Basic Tests", function () {
       const metadataURI = "https://example.com/meme/metadata/1";
 
       // Owner (who has APPROVER_ROLE) calls mintNFT for owner
-      await minterContract.mintNFT(1, 1, metadataURI);
+      await minterContract.mintNFT(1, metadataURI);
 
       expect(await memeCollection.ownerOf(1)).to.equal(owner.address);
       expect(await memeCollection.tokenURI(1)).to.equal(metadataURI);
@@ -162,11 +167,11 @@ describe("Rekt CEO Basic Tests", function () {
       const metadataURI = "https://example.com/pfp/metadata/";
 
       // Mint 2 PFPs (max limit) - owner calls for owner
-      await minterContract.mintNFT(0, 1, metadataURI + "1");
-      await minterContract.mintNFT(0, 1, metadataURI + "2");
+      await minterContract.mintNFT(0, metadataURI + "1");
+      await minterContract.mintNFT(0, metadataURI + "2");
 
       // Try to mint third (should fail)
-      await expect(minterContract.mintNFT(0, 1, metadataURI + "3"))
+      await expect(minterContract.mintNFT(0, metadataURI + "3"))
         .to.be.revertedWith("NFTCollection: User mint limit reached");
     });
   });

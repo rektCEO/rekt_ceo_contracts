@@ -28,7 +28,6 @@ describe("Royalties, Price Update, and Swap Config", function () {
       await meme.getAddress(),
       await usdc.getAddress(),
       owner.address,
-      owner.address,
       owner.address
     );
     await minter.waitForDeployment();
@@ -40,20 +39,20 @@ describe("Royalties, Price Update, and Swap Config", function () {
 
   it("should return ERC-2981 royalty info from PFP", async function () {
     await ceoToken.approve(await minter.getAddress(), ethers.parseEther("1000"));
-    await minter.mintNFT(0, 1, "ipfs://pfp/1");
+    await minter.mintNFT(0, "ipfs://pfp/1");
     const info = await pfp.royaltyInfo(1, ethers.parseEther("100"));
     expect(info[0]).to.equal(owner.address);
     expect(info[1]).to.equal(ethers.parseEther("2.1"));
   });
 
-  it("should enforce price update cooldown", async function () {
-    await minter.setCEOPrice(ethers.parseEther("2"));
-    await expect(minter.setCEOPrice(ethers.parseEther("3"))).to.be.revertedWith("MinterContract: Price update cooldown not met");
+  it("should return correct CEO price from mock oracle", async function () {
+    const ceoPrice = await minter.getCEOUSDCPrice();
+    expect(ceoPrice).to.equal(ethers.parseEther("0.567")); // Mock price
   });
 
   it("should emit swap event when USDC swap is enabled", async function () {
     await ceoToken.approve(await minter.getAddress(), ethers.parseEther("1000"));
-    await expect(minter.mintNFT(1, 1, "ipfs://meme/1")).to.emit(minter, "CEOToUSDC");
+    await expect(minter.mintNFT(1, "ipfs://meme/1")).to.emit(minter, "CEOToUSDC");
   });
 });
 
