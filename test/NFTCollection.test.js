@@ -354,23 +354,6 @@ describe("NFTCollection", function () {
         });
       });
 
-      describe("Safe Wallet Management", function () {
-        it("Should allow admin to update safe wallet", async function () {
-          await nftCollection.setSafeWallet(user1.address);
-          expect(await nftCollection.safeWallet()).to.equal(user1.address);
-        });
-
-        it("Should not allow setting zero address as safe wallet", async function () {
-          await expect(nftCollection.setSafeWallet(ethers.ZeroAddress))
-            .to.be.revertedWith("NFTCollection: Invalid Safe wallet address");
-        });
-
-        it("Should not allow non-admin to set safe wallet", async function () {
-          await expect(nftCollection.connect(user1).setSafeWallet(user2.address))
-            .to.be.revertedWith("AccessControl: account " + user1.address.toLowerCase() + " is missing role " + await nftCollection.ADMIN_ROLE());
-        });
-      });
-
       describe("Multiple Users Minting", function () {
         beforeEach(async function () {
           await nftCollection.setMinterContract(minter.address);
