@@ -62,6 +62,15 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
     );
     await minterContract.waitForDeployment();
 
+    // Deploy Mock Uniswap Router
+    const MockUniswapRouter = await ethers.getContractFactory("MockUniswapRouter");
+    const mockRouter = await MockUniswapRouter.deploy();
+    await mockRouter.waitForDeployment();
+
+    // Configure Uniswap router in MinterContract
+    const swapPath = [await ceoToken.getAddress(), await usdc.getAddress()];
+    await minterContract.setUniswapConfig(await mockRouter.getAddress(), swapPath, 100); // 1% slippage
+
     // Configure contracts
     await pfpCollection.setMinterContract(await minterContract.getAddress());
     await memeCollection.setMinterContract(await minterContract.getAddress());
@@ -113,7 +122,7 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
       const [tierId, priceUSD, , remainingInTier] = await minterContract.getCurrentTierInfo(0);
       
       expect(tierId).to.equal(1);
-      expect(priceUSD).to.equal(ethers.parseEther("50")); // Tier 1 price
+      expect(priceUSD).to.equal(BigInt(50 * 1e6)); // Tier 1 price in USDC decimals (6)
       expect(remainingInTier).to.equal(500); // Full Tier 1 available
       expect(await pfpCollection.getCurrentTokenId()).to.equal(1); // Token counter starts at 1
       
@@ -174,7 +183,7 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
       // Verify we start in Tier 1
       let [tierId, priceUSD] = await minterContract.getCurrentTierInfo(0);
       expect(tierId).to.equal(1);
-      expect(priceUSD).to.equal(ethers.parseEther("50"));
+      expect(priceUSD).to.equal(BigInt(50 * 1e6)); // $50 in USDC decimals (6)
 
       // Mint as many as we can with available users (up to 36 tokens with 18 users)
       const maxTokens = Math.min(users.length * 2, 36);
@@ -295,7 +304,7 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
       const [tierId, priceUSD, , remainingInTier] = await minterContract.getCurrentTierInfo(1);
       
       expect(tierId).to.equal(1);
-      expect(priceUSD).to.equal(ethers.parseEther("5")); // Tier 1 MEME price
+      expect(priceUSD).to.equal(BigInt(5 * 1e6)); // Tier 1 MEME price in USDC decimals (6)
       expect(remainingInTier).to.equal(5000); // Full Tier 1 available
       
       console.log("✓ MEME Tier 1 initialized correctly");
@@ -412,13 +421,13 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
       const pfpTier2 = await minterContract.tiers(0, 2);
       const pfpTier3 = await minterContract.tiers(0, 3);
 
-      // Verify prices don't overflow and are reasonable
-      expect(pfpTier1.priceUSD).to.equal(ethers.parseEther("50"));
-      expect(pfpTier2.priceUSD).to.equal(ethers.parseEther("150"));
-      expect(pfpTier3.priceUSD).to.equal(ethers.parseEther("250"));
+      // Verify prices don't overflow and are reasonable (now in USDC decimals = 6)
+      expect(pfpTier1.priceUSD).to.equal(BigInt(50 * 1e6)); // $50 in USDC decimals
+      expect(pfpTier2.priceUSD).to.equal(BigInt(150 * 1e6)); // $150 in USDC decimals
+      expect(pfpTier3.priceUSD).to.equal(BigInt(250 * 1e6)); // $250 in USDC decimals
 
       // Calculate CEO prices (should not overflow)
-      const ceoPrice1 = await minterContract.getNFTPriceInCEO(0);
+      const [, , ceoPrice1] = await minterContract.getCurrentTierInfo(0); // Extract priceCEO
       expect(ceoPrice1).to.be.gt(0);
       expect(ceoPrice1).to.be.lt(ethers.parseEther("1000000")); // Reasonable upper bound
 

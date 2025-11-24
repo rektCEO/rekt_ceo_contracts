@@ -32,6 +32,15 @@ describe("Royalties, Price Update, and Swap Config", function () {
     );
     await minter.waitForDeployment();
 
+    // Deploy Mock Uniswap Router
+    const MockUniswapRouter = await ethers.getContractFactory("MockUniswapRouter");
+    const mockRouter = await MockUniswapRouter.deploy();
+    await mockRouter.waitForDeployment();
+
+    // Configure Uniswap router in MinterContract
+    const swapPath = [await ceoToken.getAddress(), await usdc.getAddress()];
+    await minter.setUniswapConfig(await mockRouter.getAddress(), swapPath, 100); // 1% slippage
+
     await pfp.setMinterContract(await minter.getAddress());
     await meme.setMinterContract(await minter.getAddress());
     await minter.grantRole(await minter.APPROVER_ROLE(), owner.address);
@@ -46,8 +55,8 @@ describe("Royalties, Price Update, and Swap Config", function () {
   });
 
   it("should return correct CEO price from mock oracle", async function () {
-    const ceoPrice = await minter.getCEOUSDCPrice();
-    expect(ceoPrice).to.equal(ethers.parseEther("0.567")); // Mock price
+    const ceoPrice = await minter.queryCEOPriceFromDEX();
+    expect(ceoPrice).to.equal(BigInt(567000)); // Mock price: 0.567 USDC (6 decimals)
   });
 
   it("should emit swap event when USDC swap is enabled", async function () {

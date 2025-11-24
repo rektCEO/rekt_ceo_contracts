@@ -44,6 +44,15 @@ describe("Rekt CEO Basic Tests", function () {
     );
     await minterContract.waitForDeployment();
 
+    // Deploy Mock Uniswap Router
+    const MockUniswapRouter = await ethers.getContractFactory("MockUniswapRouter");
+    const mockRouter = await MockUniswapRouter.deploy();
+    await mockRouter.waitForDeployment();
+
+    // Configure Uniswap router in MinterContract
+    const swapPath = [await ceoToken.getAddress(), await usdc.getAddress()];
+    await minterContract.setUniswapConfig(await mockRouter.getAddress(), swapPath, 100); // 1% slippage
+
     // Configure contracts
     await pfpCollection.setMinterContract(await minterContract.getAddress());
     await memeCollection.setMinterContract(await minterContract.getAddress());
@@ -108,31 +117,31 @@ describe("Rekt CEO Basic Tests", function () {
 
   describe("Minter Contract", function () {
     it("Should have correct CEO price", async function () {
-      const ceoPrice = await minterContract.getCEOUSDCPrice();
-      expect(ceoPrice).to.equal(ethers.parseEther("0.567")); // Mock price from contract
+      const ceoPrice = await minterContract.queryCEOPriceFromDEX();
+      expect(ceoPrice).to.equal(BigInt(567000)); // Mock price: 0.567 USDC (6 decimals)
     });
 
     it("Should have default tiers with supply limits", async function () {
       const pfpTier1 = await minterContract.tiers(0, 1); // PFP tier 1
-      expect(pfpTier1.priceUSD).to.equal(ethers.parseEther("50"));
+      expect(pfpTier1.priceUSD).to.equal(BigInt(50 * 1e6)); // $50 in USDC decimals (6)
       expect(pfpTier1.supplyLimit).to.equal(500);
       expect(pfpTier1.startSupply).to.equal(0);
 
       const memeTier1 = await minterContract.tiers(1, 1); // MEME tier 1
-      expect(memeTier1.priceUSD).to.equal(ethers.parseEther("5"));
+      expect(memeTier1.priceUSD).to.equal(BigInt(5 * 1e6)); // $5 in USDC decimals (6)
       expect(memeTier1.supplyLimit).to.equal(5000);
       expect(memeTier1.startSupply).to.equal(0);
     });
 
     it("Should calculate correct prices", async function () {
-      const pfpPrice = await minterContract.getNFTPriceInCEO(0); // PFP
-      // $50 / $0.567 per CEO = ~88.18 CEO tokens
-      const expectedPfpPrice = (ethers.parseEther("50") * ethers.parseEther("1")) / ethers.parseEther("0.567");
+      const [, , pfpPrice] = await minterContract.getCurrentTierInfo(0); // PFP - extract priceCEO
+      // $50 (50 * 10^6 USDC) * 10^18 CEO decimals / 567000 USDC per CEO = ~88.18 CEO tokens (in 18 decimals)
+      const expectedPfpPrice = (BigInt(50 * 1e6) * ethers.parseEther("1")) / BigInt(567000);
       expect(pfpPrice).to.equal(expectedPfpPrice);
 
-      const memePrice = await minterContract.getNFTPriceInCEO(1); // MEME
-      // $5 / $0.567 per CEO = ~8.818 CEO tokens
-      const expectedMemePrice = (ethers.parseEther("5") * ethers.parseEther("1")) / ethers.parseEther("0.567");
+      const [, , memePrice] = await minterContract.getCurrentTierInfo(1); // MEME - extract priceCEO
+      // $5 (5 * 10^6 USDC) * 10^18 CEO decimals / 567000 USDC per CEO = ~8.818 CEO tokens (in 18 decimals)
+      const expectedMemePrice = (BigInt(5 * 1e6) * ethers.parseEther("1")) / BigInt(567000);
       expect(memePrice).to.equal(expectedMemePrice);
     });
   });
