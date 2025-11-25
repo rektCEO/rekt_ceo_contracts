@@ -134,12 +134,12 @@ describe("Rekt CEO Basic Tests", function () {
     });
 
     it("Should calculate correct prices", async function () {
-      const [, , pfpPrice] = await minterContract.getCurrentTierInfo(0); // PFP - extract priceCEO
+      const [, , , pfpPrice] = await minterContract.getCurrentTierInfo(0); // PFP - extract priceCEO (4th value)
       // $50 (50 * 10^6 USDC) * 10^18 CEO decimals / 567000 USDC per CEO = ~88.18 CEO tokens (in 18 decimals)
       const expectedPfpPrice = (BigInt(50 * 1e6) * ethers.parseEther("1")) / BigInt(567000);
       expect(pfpPrice).to.equal(expectedPfpPrice);
 
-      const [, , memePrice] = await minterContract.getCurrentTierInfo(1); // MEME - extract priceCEO
+      const [, , , memePrice] = await minterContract.getCurrentTierInfo(1); // MEME - extract priceCEO (4th value)
       // $5 (5 * 10^6 USDC) * 10^18 CEO decimals / 567000 USDC per CEO = ~8.818 CEO tokens (in 18 decimals)
       const expectedMemePrice = (BigInt(5 * 1e6) * ethers.parseEther("1")) / BigInt(567000);
       expect(memePrice).to.equal(expectedMemePrice);

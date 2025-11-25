@@ -434,18 +434,20 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     /**
      * @dev Get current tier information based on minted supply
      * @param _nftType The type of NFT (PFP or MEME)
+     * @return currentSupply The current supply of the NFT type
      * @return tierId The current tier ID
      * @return priceUSD The price in USD
      * @return priceCEO The price in CEO tokens
      * @return remainingInTier Number of NFTs remaining in current tier
      */
     function getCurrentTierInfo(NFTType _nftType) external view returns (
+        uint256 currentSupply,
         uint256 tierId,
         uint256 priceUSD,
         uint256 priceCEO,
         uint256 remainingInTier
     ) {
-        uint256 currentSupply = _getCurrentSupply(_nftType);
+        currentSupply = _getCurrentSupply(_nftType);
         tierId = _getCurrentTier(_nftType, currentSupply);
         require(tierId > 0, "MinterContract: All tiers exhausted");
         

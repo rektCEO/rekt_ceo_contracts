@@ -119,7 +119,7 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
 
   describe("PFP: Tier 1 → Tier 2 Boundary (Token IDs 1-500 → 501-809)", function () {
     it("Should start in Tier 1 with correct initial state", async function () {
-      const [tierId, priceUSD, , remainingInTier] = await minterContract.getCurrentTierInfo(0);
+      const [currentSupply, tierId, priceUSD, priceCEO, remainingInTier] = await minterContract.getCurrentTierInfo(0);
       
       expect(tierId).to.equal(1);
       expect(priceUSD).to.equal(BigInt(50 * 1e6)); // Tier 1 price in USDC decimals (6)
@@ -142,7 +142,7 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
       }
 
       // Still in Tier 1
-      const [tierId, , , remainingInTier] = await minterContract.getCurrentTierInfo(0);
+      const [currentSupply, tierId, priceUSD, priceCEO, remainingInTier] = await minterContract.getCurrentTierInfo(0);
       expect(tierId).to.equal(1);
       expect(remainingInTier).to.equal(490); // 500 - 10 = 490
       expect(await pfpCollection.getCurrentTokenId()).to.equal(11); // Next token ID
@@ -157,9 +157,9 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
         await minterContract.connect(users[i]).mintNFT(0, `token_${i * 2 + 2}`);
       }
 
-      let [tierId, , , remainingInTier] = await minterContract.getCurrentTierInfo(0);
-      expect(tierId).to.equal(1);
-      expect(remainingInTier).to.equal(480); // 500 - 20 = 480
+      let [currentSupply1, tierId1, priceUSD1, priceCEO1, remainingInTier1] = await minterContract.getCurrentTierInfo(0);
+      expect(tierId1).to.equal(1);
+      expect(remainingInTier1).to.equal(480); // 500 - 20 = 480
 
       // Mint 10 more using different users (total 30)
       for (let i = 10; i < 15; i++) {
@@ -167,9 +167,9 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
         await minterContract.connect(users[i]).mintNFT(0, `token_${i * 2 + 2}`);
       }
 
-      [tierId, , , remainingInTier] = await minterContract.getCurrentTierInfo(0);
-      expect(tierId).to.equal(1);
-      expect(remainingInTier).to.equal(470); // 500 - 30 = 470
+      const [currentSupply2, tierId2, priceUSD2, priceCEO2, remainingInTier2] = await minterContract.getCurrentTierInfo(0);
+      expect(tierId2).to.equal(1);
+      expect(remainingInTier2).to.equal(470); // 500 - 30 = 470
 
       console.log("✓ Correctly tracked remaining tokens");
     });
@@ -181,17 +181,17 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
       // With limited users, we'll test the boundary logic
       
       // Verify we start in Tier 1
-      let [tierId, priceUSD] = await minterContract.getCurrentTierInfo(0);
-      expect(tierId).to.equal(1);
-      expect(priceUSD).to.equal(BigInt(50 * 1e6)); // $50 in USDC decimals (6)
+      let [currentSupply1, tierId1, priceUSD1] = await minterContract.getCurrentTierInfo(0);
+      expect(tierId1).to.equal(1);
+      expect(priceUSD1).to.equal(BigInt(50 * 1e6)); // $50 in USDC decimals (6)
 
       // Mint as many as we can with available users (up to 36 tokens with 18 users)
       const maxTokens = Math.min(users.length * 2, 36);
       await mintMultipleTokens(0, maxTokens);
 
       // Verify still in Tier 1
-      [tierId] = await minterContract.getCurrentTierInfo(0);
-      expect(tierId).to.equal(1);
+      const [currentSupply2, tierId2] = await minterContract.getCurrentTierInfo(0);
+      expect(tierId2).to.equal(1);
 
       console.log(`✓ Minted ${maxTokens} tokens, still in Tier 1`);
     });
@@ -301,7 +301,7 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
 
   describe("MEME: Higher Supply Testing", function () {
     it("Should start in Tier 1 with correct MEME pricing", async function () {
-      const [tierId, priceUSD, , remainingInTier] = await minterContract.getCurrentTierInfo(1);
+      const [currentSupply, tierId, priceUSD, priceCEO, remainingInTier] = await minterContract.getCurrentTierInfo(1);
       
       expect(tierId).to.equal(1);
       expect(priceUSD).to.equal(BigInt(5 * 1e6)); // Tier 1 MEME price in USDC decimals (6)
@@ -427,7 +427,7 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
       expect(pfpTier3.priceUSD).to.equal(BigInt(250 * 1e6)); // $250 in USDC decimals
 
       // Calculate CEO prices (should not overflow)
-      const [, , ceoPrice1] = await minterContract.getCurrentTierInfo(0); // Extract priceCEO
+      const [currentSupply, tierId, priceUSD, ceoPrice1] = await minterContract.getCurrentTierInfo(0); // Extract priceCEO (4th value)
       expect(ceoPrice1).to.be.gt(0);
       expect(ceoPrice1).to.be.lt(ethers.parseEther("1000000")); // Reasonable upper bound
 
@@ -455,7 +455,7 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
     it("Should safely handle remaining supply calculations", async function () {
       await mintMultipleTokens(0, 10);
 
-      const [, , , remainingInTier] = await minterContract.getCurrentTierInfo(0);
+      const [currentSupply, tierId, priceUSD, priceCEO, remainingInTier] = await minterContract.getCurrentTierInfo(0);
       expect(remainingInTier).to.equal(490); // 500 - 10
 
       const totalRemaining = await pfpCollection.getRemainingSupply();
@@ -472,13 +472,13 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
   describe("Tier Transition Logic Verification", function () {
     it("Should correctly identify tier based on current supply", async function () {
       // At supply 0, should be Tier 1
-      let [tierId] = await minterContract.getCurrentTierInfo(0);
-      expect(tierId).to.equal(1);
+      let [currentSupply1, tierId1] = await minterContract.getCurrentTierInfo(0);
+      expect(tierId1).to.equal(1);
 
       // Mint some tokens, still Tier 1
       await mintMultipleTokens(0, 20);
-      [tierId] = await minterContract.getCurrentTierInfo(0);
-      expect(tierId).to.equal(1);
+      const [currentSupply2, tierId2] = await minterContract.getCurrentTierInfo(0);
+      expect(tierId2).to.equal(1);
 
       console.log("✓ Tier correctly identified based on supply");
     });
