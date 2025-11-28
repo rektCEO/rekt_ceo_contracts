@@ -1,0 +1,159 @@
+╔═══════════════════════════════════════════════════════════════════════╗
+║           Rekt CEO Contracts - Deployment Scripts Guide              ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+📁 AVAILABLE SCRIPTS
+───────────────────────────────────────────────────────────────────────
+
+Individual deployment steps (run in order):
+  1_deploy_ceo_token.js        - Deploy CEO Token
+  2_deploy_pfp_collection.js   - Deploy PFP NFT Collection  
+  3_deploy_meme_collection.js  - Deploy Meme NFT Collection
+  4_deploy_usdc.js             - Deploy/Configure USDC
+  5_deploy_minter.js           - Deploy Minter Contract
+  6_configure_contracts.js     - Configure all contracts
+  7_verify_deployment.js       - Verify and save deployment
+  8_verify_explorer.js         - Verify contracts on block explorer
+  9_deploy_ceo_usdc_pool.js    - Deploy Uniswap V2 CEO/USDC pool
+  10_configure_uniswap.js      - Configure Uniswap in MinterContract
+  11_test_minting.js           - Test NFT minting (standard flow)
+  12_test_minting_with_permit.js - Test NFT minting with Permit (gasless)
+
+Full deployment:
+  deploy_all.js                - Run all steps automatically
+
+
+🚀 QUICK START
+───────────────────────────────────────────────────────────────────────
+
+Option 1: Run all steps at once
+  npx hardhat run scripts/deploy/deploy_all.js --network <network>
+
+Option 2: Run individual steps
+  npx hardhat run scripts/deploy/1_deploy_ceo_token.js --network <network>
+  npx hardhat run scripts/deploy/2_deploy_pfp_collection.js --network <network>
+  (continue with remaining steps...)
+
+
+⚙️ CONFIGURATION
+───────────────────────────────────────────────────────────────────────
+
+Environment Variables (all optional):
+  See env.deploy.example for complete list
+
+Existing Contracts:
+  CEO_TOKEN_ADDRESS           - Use existing CEO token
+  PFP_COLLECTION_ADDRESS      - Use existing PFP collection
+  MEME_COLLECTION_ADDRESS     - Use existing meme collection
+  MINTER_CONTRACT_ADDRESS     - Use existing minter contract
+  USDC_ADDRESS                - Use existing USDC (or deploy mock)
+
+Admin Addresses:
+  ADMIN_ADDRESS               - Main admin (use multisig for production)
+  TREASURY_ADDRESS            - Treasury for fees
+  SAFE_WALLET_ADDRESS         - Gnosis Safe for royalties
+  APPROVER_ADDRESS            - Backend approver wallet
+  RESCUER_ADDRESS             - Emergency rescuer wallet
+
+Block Explorer API Keys (required for verification - step 8):
+  ETHERSCAN_API_KEY           - For Ethereum Mainnet & Sepolia
+  BASESCAN_API_KEY            - For Base Mainnet & Base Sepolia  
+  BSCSCAN_API_KEY             - For BNB Smart Chain
+  POLYGONSCAN_API_KEY         - For Polygon networks
+
+If not provided, deployer address will be used for admin roles.
+
+
+📝 DEPLOYMENT STATE
+───────────────────────────────────────────────────────────────────────
+
+Shared state file: deployment-state.json
+  - Created in scripts/deploy/ directory
+  - Tracks all deployed contract addresses
+  - Used by subsequent steps
+  - Final deployment saved to deployments/ directory
+
+
+✅ VALIDATION
+───────────────────────────────────────────────────────────────────────
+
+All environment variable addresses are validated:
+  ✓ Must be valid Ethereum addresses
+  ✓ Invalid addresses will trigger new deployment
+  ✓ Empty values will trigger new deployment
+
+
+📋 EXAMPLES
+───────────────────────────────────────────────────────────────────────
+
+Deploy everything fresh (local/testnet):
+  npx hardhat run scripts/deploy/deploy_all.js --network localhost
+
+Deploy with existing USDC (Sepolia):
+  export USDC_ADDRESS=0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+  npx hardhat run scripts/deploy/deploy_all.js --network sepolia
+
+Deploy with custom admin:
+  export ADMIN_ADDRESS=0xYourMultisigAddress
+  export TREASURY_ADDRESS=0xYourTreasuryAddress
+  npx hardhat run scripts/deploy/deploy_all.js --network mainnet
+
+Resume from step 5 (if step 1-4 already completed):
+  npx hardhat run scripts/deploy/5_deploy_minter.js --network <network>
+
+
+🔍 VERIFICATION
+───────────────────────────────────────────────────────────────────────
+
+After deployment (steps 1-7):
+  1. Check console output for contract addresses
+  2. Review deployment-state.json
+  3. Find final deployment in deployments/<network>-<timestamp>.json
+  4. Test with small amounts before production use
+
+Verify contracts on block explorer (step 8):
+  npx hardhat run scripts/deploy/8_verify_explorer.js --network <network>
+
+Requirements:
+  - Set appropriate API key in .env (ETHERSCAN_API_KEY, BASESCAN_API_KEY, etc.)
+  - Wait ~30 seconds after deployment before verifying
+  - Script will automatically verify all deployed contracts
+  - Results saved to verification-results.json
+
+
+🧪 TESTING
+───────────────────────────────────────────────────────────────────────
+
+After deployment and Uniswap setup (steps 1-10), test minting:
+
+Standard minting test:
+  npx hardhat run scripts/deploy/11_test_minting.js --network <network>
+  - Tests regular NFT minting flow
+  - Verifies CEO/USDC swaps work correctly
+  - Validates treasury receives funds
+
+Permit-based minting test:
+  1. Generate a test private key:
+     node scripts/generate_test_key.js
+  
+  2. Add USER_PRIVATE_KEY to your .env file:
+     USER_PRIVATE_KEY=<generated_private_key>
+  
+  3. Run the permit test:
+     npx hardhat run scripts/deploy/12_test_minting_with_permit.js --network <network>
+
+  See PERMIT_TESTING_GUIDE.md for detailed instructions.
+
+
+💡 TIPS
+───────────────────────────────────────────────────────────────────────
+
+- Scripts are idempotent - safe to re-run
+- Each step checks for existing contracts
+- Use environment variables to skip redeployment
+- Always test on testnet first
+- Use multisig wallets for production admin roles
+- Keep deployment-state.json for reference
+- Test both minting flows (standard and permit) before production
+
+
