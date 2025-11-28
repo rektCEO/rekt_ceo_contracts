@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-11-27T23:44:31.253Z",
+  "network": "sepolia",
+  "chainId": "11155111",
+  "contracts": {
+    "ceoToken": {
+      "success": false,
+      "address": "0xA5bcA6252a477C4Eb62cDbabF3C16f7c06b4f741",
+      "error": "The Etherscan API responded with a failure status.\nThe verification may still succeed but should be checked manually.\nReason: Missing chainid parameter (required for v2 api), please see https://api.etherscan.io/v2/chainlist for the list of supported chainids"
+    },
+    "pfpCollection": {
+      "success": true,
+      "address": "0x953d13825dc4dB8F5a07D90877d1f4626a355bac",
+      "alreadyVerified": true
+    },
+    "memeCollection": {
+      "success": true,
+      "address": "0x5a9f7C350A8f69692e36494FCd42e24640aa804d",
+      "alreadyVerified": true
+    },
+    "usdc": {
+      "success": false,
+      "address": "0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8",
+      "error": "The contract you want to verify was compiled with solidity 0.8.10, but your configured compiler version is: 0.8.19.\n\nPossible causes are:\n- You are not in the same commit that was used to deploy the contract.\n- Wrong compiler version selected in hardhat config.\n- The given address is wrong.\n- The selected network (sepolia) is wrong."
+    },
+    "minterContract": {
+      "success": false,
+      "address": "0xccb8a72cd9149F85c74de4d3d2D756782aa338e8",
+      "error": "The Etherscan API responded with a failure status.\nThe verification may still succeed but should be checked manually.\nReason: Missing chainid parameter (required for v2 api), please see https://api.etherscan.io/v2/chainlist for the list of supported chainids"
+    }
+  }
+}
