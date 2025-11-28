@@ -88,6 +88,14 @@ module.exports = {
     },
     customChains: [
       {
+        network: "sepolia",
+        chainId: 11155111,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=11155111",
+          browserURL: "https://sepolia.etherscan.io"
+        }
+      },
+      {
         network: "base",
         chainId: 8453,
         urls: {

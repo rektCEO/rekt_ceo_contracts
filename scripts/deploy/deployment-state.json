@@ -1,0 +1,115 @@
+{
+  "network": {
+    "name": "sepolia",
+    "chainId": "11155111"
+  },
+  "deployer": "0x4e39a3aE616a3e7d853ab54D0Ca242188a89Fc80",
+  "timestamp": "2025-11-27T22:51:25.149Z",
+  "ceoToken": "0xA5bcA6252a477C4Eb62cDbabF3C16f7c06b4f741",
+  "ceoTokenDeployedInThisRun": true,
+  "pfpCollection": "0x953d13825dc4dB8F5a07D90877d1f4626a355bac",
+  "pfpCollectionDeployedInThisRun": true,
+  "lastUpdate": "2025-11-28T16:12:50.540Z",
+  "memeCollection": "0x5a9f7C350A8f69692e36494FCd42e24640aa804d",
+  "memeCollectionDeployedInThisRun": true,
+  "usdc": "0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8",
+  "usdcDeployedInThisRun": false,
+  "minterContract": "0xccb8a72cd9149F85c74de4d3d2D756782aa338e8",
+  "minterContractDeployedInThisRun": true,
+  "configured": true,
+  "configuration": {
+    "approver": "0x4e39a3aE616a3e7d853ab54D0Ca242188a89Fc80",
+    "rescuer": "0x4e39a3aE616a3e7d853ab54D0Ca242188a89Fc80",
+    "admin": "0x4e39a3aE616a3e7d853ab54D0Ca242188a89Fc80"
+  },
+  "verified": true,
+  "verificationTimestamp": "2025-11-27T23:44:31.253Z",
+  "verificationResults": {
+    "ceoToken": {
+      "success": false,
+      "address": "0xA5bcA6252a477C4Eb62cDbabF3C16f7c06b4f741",
+      "error": "The Etherscan API responded with a failure status.\nThe verification may still succeed but should be checked manually.\nReason: Missing chainid parameter (required for v2 api), please see https://api.etherscan.io/v2/chainlist for the list of supported chainids"
+    },
+    "pfpCollection": {
+      "success": true,
+      "address": "0x953d13825dc4dB8F5a07D90877d1f4626a355bac",
+      "alreadyVerified": true
+    },
+    "memeCollection": {
+      "success": true,
+      "address": "0x5a9f7C350A8f69692e36494FCd42e24640aa804d",
+      "alreadyVerified": true
+    },
+    "usdc": {
+      "success": false,
+      "address": "0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8",
+      "error": "The contract you want to verify was compiled with solidity 0.8.10, but your configured compiler version is: 0.8.19.\n\nPossible causes are:\n- You are not in the same commit that was used to deploy the contract.\n- Wrong compiler version selected in hardhat config.\n- The given address is wrong.\n- The selected network (sepolia) is wrong."
+    },
+    "minterContract": {
+      "success": false,
+      "address": "0xccb8a72cd9149F85c74de4d3d2D756782aa338e8",
+      "error": "The Etherscan API responded with a failure status.\nThe verification may still succeed but should be checked manually.\nReason: Missing chainid parameter (required for v2 api), please see https://api.etherscan.io/v2/chainlist for the list of supported chainids"
+    }
+  },
+  "uniswapPool": {
+    "pairAddress": "0x9797EC159F448DEaA6D258E4827459A1E8808De2",
+    "ceoAmount": "10185000000000000000000000",
+    "usdcAmount": "10185000",
+    "targetPrice": "0.000001",
+    "deployedAt": "2025-11-27T23:50:25.145Z",
+    "transactionHash": "0x02daf99d348271a82d75e0cf6de2a44149944ddb87d930e5610a56cd25c7b192",
+    "blockNumber": 9720817
+  },
+  "uniswapConfigured": true,
+  "uniswapConfiguration": {
+    "router": "0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3",
+    "swapPath": [
+      "0xA5bcA6252a477C4Eb62cDbabF3C16f7c06b4f741",
+      "0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8"
+    ],
+    "slippageTolerance": 100,
+    "configuredAt": "2025-11-27T23:54:01.145Z",
+    "transactionHash": "0xf7a5fe94aa16ca0c0a5ff64696238aee74e81013c199851e0fccfc652c14632a",
+    "blockNumber": 9720832
+  },
+  "testResults": [
+    {
+      "timestamp": "2025-11-27T23:54:37.583Z",
+      "nftType": "PFP",
+      "tokenId": "2",
+      "ceoSpent": "1666666666666666666666666",
+      "treasuryCEOGained": "-1666666666666666666666666",
+      "treasuryUSDCGained": "15715697",
+      "blockNumber": 9720834,
+      "transactionHash": "0x321e3ea8079330268d07f87aa4d0fb4b2eea6fa824ea92449a12da7fc6c90512"
+    }
+  ],
+  "mintingTested": true,
+  "permitTestResults": [
+    {
+      "timestamp": "2025-11-27T23:59:37.579Z",
+      "user": "0xEF1685597f2f1835c2654df85622e9AFBd99Aae6",
+      "nftType": "PFP",
+      "tokenId": "3",
+      "ceoSpent": "1785714285714285714285714",
+      "treasuryCEOGained": "892857142857142857142857",
+      "treasuryUSDCGained": "17290283",
+      "blockNumber": 9720856,
+      "transactionHash": "0xa2df4f97029358a33a98ddd45eb7d61fd0dcedc5ad9c51d63928d270122b61e5",
+      "permitUsed": true
+    },
+    {
+      "timestamp": "2025-11-28T16:12:50.540Z",
+      "user": "0xEF1685597f2f1835c2654df85622e9AFBd99Aae6",
+      "nftType": "PFP",
+      "tokenId": "4",
+      "ceoSpent": "3846153846153846153846153",
+      "treasuryCEOGained": "1923076923076923076923077",
+      "treasuryUSDCGained": "15088710",
+      "blockNumber": 9725282,
+      "transactionHash": "0x25de6fe28cfbc753bd5003723542d4087bdaf40bfc5f9e906222bf35cc04a812",
+      "permitUsed": true
+    }
+  ],
+  "permitMintingTested": true
+}
