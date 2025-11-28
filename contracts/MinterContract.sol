@@ -4,11 +4,13 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "./CEOToken.sol";
 import "./NFTCollection.sol";
+import "./interfaces/IUniswapV2Router02.sol";
 
 /**
  * @title MinterContract
@@ -26,7 +28,7 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     enum NFTType { PFP, MEME }
     
     struct Tier {
-        uint256 priceUSD;    // Price in USD (scaled by 1e18)
+        uint256 priceUSD;    // Price in USD (scaled by stablecoin decimals - typically 1e6 for USDC)
         uint256 supplyLimit; // Number of NFTs that can be minted in this tier
         uint256 startSupply; // Cumulative supply at the start of this tier
     }
@@ -48,10 +50,6 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVER_ROLE = keccak256("APPROVER_ROLE");
     bytes32 public constant RESCUER_ROLE = keccak256("RESCUER_ROLE");
-    
-    // Mock DEX price - TODO: Replace with actual DEX integration
-    uint256 private constant MOCK_CEO_PRICE_USD = 567e15; // $0.567 per CEO token (18 decimals)
-    uint256 private constant USDC_PRICE_USD = 1e18; // USDC is pegged to $1 (18 decimals)
 
     /*//////////////////////////////////////////////////////////////
                             STATE VARIABLES
@@ -63,13 +61,22 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     NFTCollection public memeCollection;
     address public treasury;
     
-    // Pricing tiers (USD prices scaled by 1e18)
-    // Tier ID 1, 2, 3 with supply limits: 25, 25, 50
+    // Token decimals (queried from token contracts)
+    uint8 public ceoDecimals;
+    uint8 public usdcDecimals;
+    
+    // Pricing tiers (USD prices scaled by stablecoin decimals - typically 1e6 for USDC)
+    // Tier ID 1, 2, 3 with supply limits based on NFT type
     mapping(NFTType => mapping(uint256 => Tier)) public tiers;
     
     // USDC swap configuration
     bool public usdcSwapEnabled;
     uint256 public usdcSwapPercentage; // Basis points (e.g., 5000 = 50%)
+    
+    // Uniswap V2 integration
+    IUniswapV2Router02 public uniswapRouter;
+    address[] public swapPath; // Path for CEO -> USDC swap (e.g., [CEO, WETH, USDC])
+    uint256 public slippageTolerance; // Basis points (e.g., 100 = 1%)
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -78,6 +85,7 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     event TierProgressed(NFTType nftType, uint256 fromTier, uint256 toTier, uint256 currentSupply);
     event TreasuryUpdated(address indexed newTreasury);
     event USDCSwapConfigUpdated(bool enabled, uint256 percentage);
+    event UniswapConfigUpdated(address indexed router, address[] path, uint256 slippage);
     event NFTPurchased(
         address indexed user,
         NFTType nftType,
@@ -124,8 +132,16 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         usdcToken = IERC20(_usdcToken);
         treasury = _treasury;
         
+        // Query and store token decimals for dynamic calculations
+        ceoDecimals = IERC20Metadata(_ceoToken).decimals();
+        usdcDecimals = IERC20Metadata(_usdcToken).decimals();
+        require(ceoDecimals > 0 && ceoDecimals <= 77, "MinterContract: Invalid CEO decimals");
+        require(usdcDecimals > 0 && usdcDecimals <= 77, "MinterContract: Invalid USDC decimals");
+        
         usdcSwapEnabled = true;
         usdcSwapPercentage = 5000; // 50% (basis points)
+        slippageTolerance = 100; // 1% slippage tolerance (basis points)
+        // Note: uniswapRouter and swapPath must be configured via setUniswapConfig after deployment
         
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(ADMIN_ROLE, _admin);
@@ -137,38 +153,42 @@ contract MinterContract is AccessControl, ReentrancyGuard {
      * @dev Initialize default pricing tiers with supply limits
      * PFP: Tier 1 (500 NFTs), Tier 2 (309 NFTs), Tier 3 (190 NFTs) = 999 total
      * MEME: Tier 1 (5000 NFTs), Tier 2 (3090 NFTs), Tier 3 (1909 NFTs) = 9999 total
+     * @notice Prices are dynamically scaled based on USDC decimals (typically 6 decimals)
      */
     function _initializeDefaultTiers() internal {
+        // Calculate price scaling factor based on USDC decimals
+        uint256 priceScale = 10 ** usdcDecimals;
+        
         // PFP Tiers (supply: 500, 309, 190 = 999 total)
         tiers[NFTType.PFP][1] = Tier({
-            priceUSD: 50e18,      // $50
+            priceUSD: 50 * priceScale,      // $50
             supplyLimit: 500,
             startSupply: 0
         });
         tiers[NFTType.PFP][2] = Tier({
-            priceUSD: 150e18,     // $150
+            priceUSD: 150 * priceScale,     // $150
             supplyLimit: 309,
             startSupply: 500      // Starts after first 500
         });
         tiers[NFTType.PFP][3] = Tier({
-            priceUSD: 250e18,     // $250
+            priceUSD: 250 * priceScale,     // $250
             supplyLimit: 190,
             startSupply: 809      // Starts after first 809 (500 + 309)
         });
         
         // Meme Tiers (supply: 5000, 3090, 1909 = 9999 total)
         tiers[NFTType.MEME][1] = Tier({
-            priceUSD: 5e18,       // $5
+            priceUSD: 5 * priceScale,       // $5
             supplyLimit: 5000,
             startSupply: 0
         });
         tiers[NFTType.MEME][2] = Tier({
-            priceUSD: 15e18,      // $15
+            priceUSD: 15 * priceScale,      // $15
             supplyLimit: 3090,
             startSupply: 5000     // Starts after first 5000
         });
         tiers[NFTType.MEME][3] = Tier({
-            priceUSD: 25e18,      // $25
+            priceUSD: 25 * priceScale,      // $25
             supplyLimit: 1909,
             startSupply: 8090     // Starts after first 8090 (5000 + 3090)
         });
@@ -198,8 +218,9 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         
         Tier memory tier = tiers[_nftType][currentTier];
         
-        uint256 ceoPriceUSD = getCEOUSDCPrice();
-        uint256 priceCEO = (tier.priceUSD * 1e18) / ceoPriceUSD;
+        // Get current CEO price from DEX and calculate required CEO amount
+        uint256 ceoPriceInUSDC = queryCEOPriceFromDEX();
+        uint256 priceCEO = _calculateCEOAmount(tier.priceUSD, ceoPriceInUSDC);
         
         // Transfer CEO tokens from user to this contract
         ceoToken.safeTransferFrom(msg.sender, address(this), priceCEO);
@@ -245,8 +266,9 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         
         Tier memory tier = tiers[_nftType][currentTier];
         
-        uint256 ceoPriceUSD = getCEOUSDCPrice();
-        uint256 priceCEO = (tier.priceUSD * 1e18) / ceoPriceUSD;
+        // Get current CEO price from DEX and calculate required CEO amount
+        uint256 ceoPriceInUSDC = queryCEOPriceFromDEX();
+        uint256 priceCEO = _calculateCEOAmount(tier.priceUSD, ceoPriceInUSDC);
 
         require(_permitData.value >= priceCEO, "MinterContract: Insufficient permit value");
         require(_permitData.spender == address(this), "MinterContract: Permit spender must be this contract");
@@ -308,6 +330,35 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         usdcSwapPercentage = _percentage;
         emit USDCSwapConfigUpdated(_enabled, _percentage);
     }
+    
+    /**
+     * @dev Configure Uniswap V2 router and swap path
+     * @param _router Address of Uniswap V2 Router
+     * @param _path Swap path from CEO to USDC (e.g., [CEO, WETH, USDC] or [CEO, USDC])
+     * @param _slippageTolerance Slippage tolerance in basis points (e.g., 100 = 1%)
+     * @notice Can only be called by admin
+     * @notice Router addresses by network:
+     *         - Ethereum Mainnet: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D
+     *         - Base: 0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24
+     *         - Arbitrum: 0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24
+     */
+    function setUniswapConfig(
+        address _router,
+        address[] memory _path,
+        uint256 _slippageTolerance
+    ) external onlyRole(ADMIN_ROLE) {
+        require(_router != address(0), "MinterContract: Invalid router address");
+        require(_path.length >= 2, "MinterContract: Path must have at least 2 tokens");
+        require(_path[0] == address(ceoToken), "MinterContract: Path must start with CEO token");
+        require(_path[_path.length - 1] == address(usdcToken), "MinterContract: Path must end with USDC token");
+        require(_slippageTolerance <= 1000, "MinterContract: Slippage tolerance too high (max 10%)");
+        
+        uniswapRouter = IUniswapV2Router02(_router);
+        swapPath = _path;
+        slippageTolerance = _slippageTolerance;
+        
+        emit UniswapConfigUpdated(_router, _path, _slippageTolerance);
+    }
 
     /*//////////////////////////////////////////////////////////////
                     TREASURY & WITHDRAWAL FUNCTIONS
@@ -346,53 +397,66 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @dev Get CEO/USDC swap price from DEX
-     * @return The current CEO price in USD (scaled by 1e18)
-     * @notice Mock implementation - TODO: Integrate with actual DEX (e.g., Uniswap V3 TWAP oracle)
+     * @dev Query the current price of CEO token from the DEX (Uniswap)
+     * @return The current CEO price in USDC (scaled to USDC decimals)
+     * @notice Uses Uniswap V2 getAmountsOut to query price of 1 CEO token in USDC
+     * @notice Reverts if Uniswap is not properly configured or price query fails
+     * 
+     * Decimal Handling (Dynamic):
+     * - CEO Token: ceoDecimals (typically 18)
+     * - USDC Token: usdcDecimals (typically 6)
+     * - Query: getAmountsOut(10^ceoDecimals, [CEO, USDC]) returns USDC amount
+     * - Return: USDC amount in native USDC decimals
+     * 
+     * Example: If CEO has 18 decimals, USDC has 6 decimals, and 1 CEO = 0.567 USDC
+     * - Query: getAmountsOut(10^18, path)
+     * - Uniswap returns: 567000 (6 decimals = 0.567 USDC)
+     * - We return: 567000 (in USDC decimals)
+     * - Price calculation: (50 * 10^6 * 10^18) / 567000 ≈ 88.1 * 10^18 CEO tokens for $50 NFT
      */
-    function getCEOUSDCPrice() public pure returns (uint256) {
-        // Mock hardcoded value for now
-        // In production, this should fetch from DEX oracle (e.g., Uniswap V3 TWAP)
-        return MOCK_CEO_PRICE_USD;
-    }
-
-    /**
-     * @dev Get current price in CEO tokens for current tier based on supply
-     * @param _nftType The type of NFT (PFP or MEME)
-     * @return The price in CEO tokens
-     */
-    function getNFTPriceInCEO(NFTType _nftType) external view returns (uint256) {
-        uint256 currentSupply = _getCurrentSupply(_nftType);
-        uint256 currentTier = _getCurrentTier(_nftType, currentSupply);
-        require(currentTier > 0, "MinterContract: All tiers exhausted");
+    function queryCEOPriceFromDEX() public view returns (uint256) {
+        // Require Uniswap to be properly configured
+        require(address(uniswapRouter) != address(0), "MinterContract: Uniswap router not configured");
+        require(swapPath.length >= 2, "MinterContract: Swap path not configured");
         
-        uint256 priceUSD = tiers[_nftType][currentTier].priceUSD;
-        uint256 ceoPriceUSD = getCEOUSDCPrice();
-        return (priceUSD * 1e18) / ceoPriceUSD;
+        // Query Uniswap: How much USDC for 1 CEO token (in CEO's native decimals)?
+        uint256 oneCEOToken = 10 ** ceoDecimals;
+        uint[] memory amounts = uniswapRouter.getAmountsOut(oneCEOToken, swapPath);
+        
+        // amounts[last] = USDC output in USDC's native decimals
+        uint256 usdcAmountForOneCEO = amounts[amounts.length - 1];
+        require(usdcAmountForOneCEO > 0, "MinterContract: Invalid price from DEX");
+        
+        // Return price in USDC decimals (no scaling needed)
+        return usdcAmountForOneCEO;
     }
     
     /**
      * @dev Get current tier information based on minted supply
      * @param _nftType The type of NFT (PFP or MEME)
+     * @return currentSupply The current supply of the NFT type
      * @return tierId The current tier ID
      * @return priceUSD The price in USD
      * @return priceCEO The price in CEO tokens
      * @return remainingInTier Number of NFTs remaining in current tier
      */
     function getCurrentTierInfo(NFTType _nftType) external view returns (
+        uint256 currentSupply,
         uint256 tierId,
         uint256 priceUSD,
         uint256 priceCEO,
         uint256 remainingInTier
     ) {
-        uint256 currentSupply = _getCurrentSupply(_nftType);
+        currentSupply = _getCurrentSupply(_nftType);
         tierId = _getCurrentTier(_nftType, currentSupply);
         require(tierId > 0, "MinterContract: All tiers exhausted");
         
         Tier memory tier = tiers[_nftType][tierId];
         priceUSD = tier.priceUSD;
-        uint256 ceoPriceUSD = getCEOUSDCPrice();
-        priceCEO = (priceUSD * 1e18) / ceoPriceUSD;
+        
+        // Get current CEO price from DEX and calculate required CEO amount
+        uint256 ceoPriceInUSDC = queryCEOPriceFromDEX();
+        priceCEO = _calculateCEOAmount(priceUSD, ceoPriceInUSDC);
         
         // Calculate remaining NFTs in current tier
         uint256 tierEndSupply = tier.startSupply + tier.supplyLimit;
@@ -426,10 +490,60 @@ contract MinterContract is AccessControl, ReentrancyGuard {
             return memeCollection.getUserMintCount(_user);
         }
     }
+    
+    /**
+     * @dev Get Uniswap configuration and swap path
+     * @return router Address of the Uniswap V2 Router
+     * @return path Array of token addresses in the swap path
+     * @return slippage Slippage tolerance in basis points
+     * @return isConfigured Whether Uniswap is properly configured
+     */
+    function getUniswapConfig() external view returns (
+        address router,
+        address[] memory path,
+        uint256 slippage,
+        bool isConfigured
+    ) {
+        router = address(uniswapRouter);
+        path = swapPath;
+        slippage = slippageTolerance;
+        isConfigured = (router != address(0) && path.length >= 2);
+    }
 
     /*//////////////////////////////////////////////////////////////
                         INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @dev Calculate the amount of CEO tokens required for a given USD price
+     * @param _tierPrice The price in USD (scaled to USDC decimals)
+     * @param _ceoPriceInUSDC The current price of 1 CEO token in USDC (scaled to USDC decimals)
+     * @return The amount of CEO tokens needed (scaled to CEO decimals)
+     * @notice This function handles dynamic decimal conversions to prevent overflow/underflow
+     * 
+     * Formula: CEO Amount = (NFT Price in USDC × 10^ceoDecimals) ÷ (CEO Price in USDC)
+     * 
+     * Example with typical decimals (CEO=18, USDC=6):
+     * - NFT costs $50 = 50 × 10^6 = 50,000,000
+     * - 1 CEO = $0.567 = 0.567 × 10^6 = 567,000
+     * - CEO needed = (50,000,000 × 10^18) ÷ 567,000 = 88,183,421,516,754,176,610 (~88.18 CEO tokens)
+     */
+    function _calculateCEOAmount(uint256 _tierPrice, uint256 _ceoPriceInUSDC) internal view returns (uint256) {
+        require(_ceoPriceInUSDC > 0, "MinterContract: Invalid CEO price");
+        
+        // Calculate: (priceUSD × 10^ceoDecimals) ÷ ceoPriceUSDC
+        // Both priceUSD and ceoPriceUSDC are in USDC decimals
+        // Result will be in CEO decimals
+        uint256 ceoDecimalScale = 10 ** ceoDecimals;
+        
+        // Using checked math to prevent overflow (Solidity 0.8+)
+        // If overflow would occur, transaction will revert with panic
+        uint256 numerator = _tierPrice * ceoDecimalScale;
+        uint256 ceoAmount = numerator / _ceoPriceInUSDC;
+        
+        require(ceoAmount > 0, "MinterContract: Calculated CEO amount is zero");
+        return ceoAmount;
+    }
 
     /**
      * @dev Get current minted supply from NFT collection contract
@@ -478,42 +592,51 @@ contract MinterContract is AccessControl, ReentrancyGuard {
      * @dev Internal function to swap CEO tokens to USDC and send to treasury
      * @param _ceoAmount Total CEO amount to process
      * @return usdcAmount The amount of USDC received from swap
-     * @notice Mock implementation - TODO: Integrate with actual DEX router (e.g., Uniswap V3)
-     * 
-     * In production, this function should:
-     * 1. Calculate swap amount based on usdcSwapPercentage (currently 50%)
-     * 2. Approve DEX router to spend CEO tokens
-     * 3. Execute swap on DEX (CEO -> USDC)
-     * 4. Transfer received USDC to treasury
-     * 5. Transfer remaining CEO (50%) to treasury
+     * @notice This function:
+     *         1. Calculates swap amount based on usdcSwapPercentage (default 50%)
+     *         2. Approves Uniswap router to spend CEO tokens
+     *         3. Executes swap on IUniswapV2Router02 (CEO -> USDC)
+     *         4. Transfers received USDC to treasury
+     *         5. Transfers remaining CEO (50%) to treasury
      */
     function _swapCEOToUSDC(uint256 _ceoAmount) internal returns (uint256) {
-        uint256 swapAmount = (_ceoAmount * usdcSwapPercentage) / 10000; // 50% of CEO
+        uint256 swapAmount = (_ceoAmount * usdcSwapPercentage) / 10000; // Default 50% of CEO
         uint256 remainingCEO = _ceoAmount - swapAmount;
         
-        // Mock swap calculation - TODO: Replace with actual DEX swap
-        uint256 ceoPriceUSD = getCEOUSDCPrice();
-        uint256 usdcAmount = (swapAmount * ceoPriceUSD) / USDC_PRICE_USD;
+        // Transfer remaining CEO (not being swapped) directly to treasury
+        if (remainingCEO > 0) {
+            ceoToken.safeTransfer(treasury, remainingCEO);
+        }
         
-        // Transfer remaining 50% CEO to treasury
-        ceoToken.safeTransfer(treasury, swapAmount);
+        // Check if Uniswap is configured
+        if (address(uniswapRouter) == address(0) || swapPath.length < 2) {
+            // Fallback: If Uniswap not configured, send CEO to treasury instead
+            ceoToken.safeTransfer(treasury, swapAmount);
+            emit CEOToUSDC(swapAmount, 0);
+            return 0;
+        }
         
-        // TODO: In production, transfer actual USDC received from swap to treasury
-        // usdcToken.safeTransfer(treasury, usdcAmount);
-        // For now, just transfer CEO to treasury (mock behavior)
-        ceoToken.safeTransfer(treasury, remainingCEO);
+        // Approve Uniswap router to spend CEO tokens
+        ceoToken.safeApprove(address(uniswapRouter), 0);
+        ceoToken.safeApprove(address(uniswapRouter), swapAmount+1);
         
-        emit CEOToUSDC(swapAmount, usdcAmount);
-        return usdcAmount;
+        // Get expected output amount with slippage protection
+        uint[] memory amountsOut = uniswapRouter.getAmountsOut(swapAmount, swapPath);
+        uint256 expectedUSDC = amountsOut[amountsOut.length - 1];
+        uint256 minUSDC = (expectedUSDC * (10000 - slippageTolerance)) / 10000;
+        
+        // Execute swap: CEO -> USDC
+        uint[] memory amounts = uniswapRouter.swapExactTokensForTokens(
+            swapAmount,           // amountIn: exact amount of CEO to swap
+            minUSDC,              // amountOutMin: minimum USDC to receive (with slippage)
+            swapPath,             // path: e.g., [CEO, WETH, USDC]
+            treasury,             // to: send USDC directly to treasury
+            block.timestamp + 300 // deadline: 5 minutes from now
+        );
+        
+        uint256 usdcReceived = amounts[amounts.length - 1];
+        
+        emit CEOToUSDC(swapAmount, usdcReceived);
+        return usdcReceived;
     }
-
-    /*//////////////////////////////////////////////////////////////
-                        RECEIVE FUNCTION
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice This contract does NOT accept ETH
-     * @dev receive() function intentionally omitted - all payments are in CEO tokens
-     * @dev If ETH is accidentally sent, transaction will revert (fail-fast design)
-     */
 }
