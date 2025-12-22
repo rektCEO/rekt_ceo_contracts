@@ -45,6 +45,36 @@ contract MockUniswapRouter {
     }
     
     /**
+     * @dev Mock implementation of getAmountsIn
+     * @notice Returns the input amounts needed to get desired output
+     * @param amountOut The desired output amount (USDC in 6 decimals)
+     * @param path The swap path (must have at least 2 addresses)
+     * @return amounts Array with input and output amounts
+     */
+    function getAmountsIn(uint256 amountOut, address[] memory path)
+        external
+        pure
+        returns (uint256[] memory amounts)
+    {
+        require(path.length >= 2, "MockRouter: Invalid path");
+        
+        amounts = new uint256[](path.length);
+        amounts[path.length - 1] = amountOut; // Output amount (USDC)
+        
+        // Calculate CEO input needed for desired USDC output
+        // Mock: 1 CEO (1e18) = 0.567 USDC (567000)
+        // Reverse: CEO_needed = (USDC_wanted * 1e18) / 567000
+        amounts[0] = (amountOut * 1e18) / 567000;
+        
+        // For simplicity, set all intermediate amounts
+        for (uint i = 1; i < path.length - 1; i++) {
+            amounts[i] = amounts[0];
+        }
+        
+        return amounts;
+    }
+    
+    /**
      * @dev Mock implementation of swapExactTokensForTokens
      * @notice Transfers input tokens from msg.sender to this contract
      * @notice Mock doesn't actually perform swap, just takes the input tokens

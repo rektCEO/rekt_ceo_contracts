@@ -218,9 +218,8 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         
         Tier memory tier = tiers[_nftType][currentTier];
         
-        // Get current CEO price from DEX and calculate required CEO amount
-        uint256 ceoPriceInUSDC = queryCEOPriceFromDEX();
-        uint256 priceCEO = _calculateCEOAmount(tier.priceUSD, ceoPriceInUSDC);
+        // Query DEX for exact CEO amount required for this tier price
+        uint256 priceCEO = _calculateCEOAmount(tier.priceUSD);
         
         // Transfer CEO tokens from user to this contract
         ceoToken.safeTransferFrom(msg.sender, address(this), priceCEO);
@@ -266,9 +265,8 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         
         Tier memory tier = tiers[_nftType][currentTier];
         
-        // Get current CEO price from DEX and calculate required CEO amount
-        uint256 ceoPriceInUSDC = queryCEOPriceFromDEX();
-        uint256 priceCEO = _calculateCEOAmount(tier.priceUSD, ceoPriceInUSDC);
+        // Query DEX for exact CEO amount required for this tier price
+        uint256 priceCEO = _calculateCEOAmount(tier.priceUSD);
 
         require(_permitData.value >= priceCEO, "MinterContract: Insufficient permit value");
         require(_permitData.spender == address(this), "MinterContract: Permit spender must be this contract");
@@ -432,6 +430,36 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     }
     
     /**
+     * @dev Query the exact amount of CEO tokens required for a given USDC amount from the DEX
+     * @param _usdcAmount The amount of USDC (scaled to USDC decimals)
+     * @return The exact amount of CEO tokens needed (scaled to CEO decimals)
+     * @notice Uses Uniswap V2 getAmountsIn to query exact CEO amount needed for desired USDC value
+     * @notice Reverts if Uniswap is not properly configured or price query fails
+     * 
+     * 
+     * Example: If we want $50 worth of USDC (50 * 10^6) and CEO price is $0.567
+     * - Query: getAmountsIn(50000000, [CEO, USDC])
+     * - We return: 88183421516754176610 (~88.18 CEO tokens with 18 decimals)
+     */
+    function queryCEOAmountFromDEX(uint256 _usdcAmount) public view returns (uint256) {
+        // Require Uniswap to be properly configured
+        require(address(uniswapRouter) != address(0), "MinterContract: Uniswap router not configured");
+        require(swapPath.length >= 2, "MinterContract: Swap path not configured");
+        require(_usdcAmount > 0, "MinterContract: USDC amount must be greater than zero");
+        
+        // Query Uniswap: How much CEO is needed to get the desired USDC amount?
+        // getAmountsIn returns an array where amounts[0] is the input (CEO) needed
+        uint[] memory amounts = uniswapRouter.getAmountsIn(_usdcAmount, swapPath);
+        
+        // amounts[0] = CEO input needed in CEO's native decimals
+        uint256 ceoAmountNeeded = amounts[0];
+        require(ceoAmountNeeded > 0, "MinterContract: Invalid CEO amount from DEX");
+        
+        // Return CEO amount in CEO decimals (no scaling needed)
+        return ceoAmountNeeded;
+    }
+    
+    /**
      * @dev Get current tier information based on minted supply
      * @param _nftType The type of NFT (PFP or MEME)
      * @return currentSupply The current supply of the NFT type
@@ -454,9 +482,8 @@ contract MinterContract is AccessControl, ReentrancyGuard {
         Tier memory tier = tiers[_nftType][tierId];
         priceUSD = tier.priceUSD;
         
-        // Get current CEO price from DEX and calculate required CEO amount
-        uint256 ceoPriceInUSDC = queryCEOPriceFromDEX();
-        priceCEO = _calculateCEOAmount(priceUSD, ceoPriceInUSDC);
+        // Query DEX for exact CEO amount required for this tier price
+        priceCEO = _calculateCEOAmount(priceUSD);
         
         // Calculate remaining NFTs in current tier
         uint256 tierEndSupply = tier.startSupply + tier.supplyLimit;
@@ -515,31 +542,22 @@ contract MinterContract is AccessControl, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @dev Calculate the amount of CEO tokens required for a given USD price
+     * @dev Calculate the amount of CEO tokens required for a given USD price by querying the DEX
      * @param _tierPrice The price in USD (scaled to USDC decimals)
-     * @param _ceoPriceInUSDC The current price of 1 CEO token in USDC (scaled to USDC decimals)
      * @return The amount of CEO tokens needed (scaled to CEO decimals)
-     * @notice This function handles dynamic decimal conversions to prevent overflow/underflow
-     * 
-     * Formula: CEO Amount = (NFT Price in USDC × 10^ceoDecimals) ÷ (CEO Price in USDC)
+     * @notice This function queries Uniswap directly for the exact CEO amount needed
+     * @notice Uses queryCEOAmountFromDEX to get real-time pricing from the liquidity pool
      * 
      * Example with typical decimals (CEO=18, USDC=6):
      * - NFT costs $50 = 50 × 10^6 = 50,000,000
-     * - 1 CEO = $0.567 = 0.567 × 10^6 = 567,000
-     * - CEO needed = (50,000,000 × 10^18) ÷ 567,000 = 88,183,421,516,754,176,610 (~88.18 CEO tokens)
+     * - Query DEX: getAmountsIn(50000000, [CEO, WETH, USDC])
+     * - DEX returns exact CEO amount needed (e.g., 88,183,421,516,754,176,610 ≈ 88.18 CEO tokens)
      */
-    function _calculateCEOAmount(uint256 _tierPrice, uint256 _ceoPriceInUSDC) internal view returns (uint256) {
-        require(_ceoPriceInUSDC > 0, "MinterContract: Invalid CEO price");
+    function _calculateCEOAmount(uint256 _tierPrice) internal view returns (uint256) {
+        require(_tierPrice > 0, "MinterContract: Invalid tier price");
         
-        // Calculate: (priceUSD × 10^ceoDecimals) ÷ ceoPriceUSDC
-        // Both priceUSD and ceoPriceUSDC are in USDC decimals
-        // Result will be in CEO decimals
-        uint256 ceoDecimalScale = 10 ** ceoDecimals;
-        
-        // Using checked math to prevent overflow (Solidity 0.8+)
-        // If overflow would occur, transaction will revert with panic
-        uint256 numerator = _tierPrice * ceoDecimalScale;
-        uint256 ceoAmount = numerator / _ceoPriceInUSDC;
+        // Query DEX for exact CEO amount needed for the tier price (in USDC)
+        uint256 ceoAmount = queryCEOAmountFromDEX(_tierPrice);
         
         require(ceoAmount > 0, "MinterContract: Calculated CEO amount is zero");
         return ceoAmount;
