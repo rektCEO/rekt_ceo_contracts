@@ -15,36 +15,53 @@ import "@openzeppelin/contracts/interfaces/IERC2981.sol";
  * @notice This contract manages NFT collections with configurable max supply and mint limits
  * @notice Enhanced with Safe multisig integration and royalty management
  */
-contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl, ReentrancyGuard, IERC2981 {
+contract NFTCollection is
+    ERC721,
+    ERC721Enumerable,
+    ERC721URIStorage,
+    AccessControl,
+    ReentrancyGuard,
+    IERC2981
+{
     using Counters for Counters.Counter;
-    
+
     // Roles
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
-    
+
     // Collection-specific constants (set in constructor)
     uint256 public immutable MAX_SUPPLY;
     uint256 public immutable MAX_MINT_PER_USER;
-    
+
     // State variables
     Counters.Counter private _tokenIdCounter;
     address public minterContract;
-    
+
     // Royalty configuration - Always split 50/50 between protocol and creator
-    address public protocolRoyaltyRecipient;  // Receives 50% of royalties (typically Safe wallet)
-    uint256 public totalRoyaltyPercentage;    // Total royalty in basis points (e.g., 210 = 2.1%)
-    
+    address public protocolRoyaltyRecipient; // Receives 50% of royalties (typically Safe wallet)
+    uint256 public totalRoyaltyPercentage; // Total royalty in basis points (e.g., 210 = 2.1%)
+
     // Mapping to track user mint counts
     mapping(address => uint256) public userMintCount;
-    
+
     // Mapping to track first minter (creator) for each token
     mapping(uint256 => address) public tokenCreator;
-    
+
     // Events
     event MinterContractSet(address indexed minterContract);
     event RoyaltyInfoUpdated(address indexed recipient, uint256 percentage);
-    event NFTMinted(address indexed to, uint256 indexed tokenId, string metadataURI, address indexed creator);
-    
+    event NFTMinted(
+        address indexed to,
+        uint256 indexed tokenId,
+        string metadataURI,
+        address indexed creator
+    );
+    event TokenURISet(
+        uint256 indexed tokenId,
+        string metadataURI,
+        address indexed caller
+    );
+
     /**
      * @dev Constructor
      * @param _name The name of the NFT collection
@@ -65,37 +82,68 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
         uint256 _totalRoyaltyPercentage
     ) ERC721(_name, _symbol) {
         require(_admin != address(0), "NFTCollection: Invalid admin address");
-        require(_safeWallet != address(0), "NFTCollection: Invalid Safe wallet address");
-        require(_maxSupply > 0, "NFTCollection: Max supply must be greater than 0");
-        require(_maxMintPerUser > 0, "NFTCollection: Max mint per user must be greater than 0");
-        require(_totalRoyaltyPercentage <= 1000, "NFTCollection: Royalty percentage too high"); // Max 10%
-        require(_totalRoyaltyPercentage % 2 == 0, "NFTCollection: Total percentage must be even for 50/50 split");
-        
+        require(
+            _safeWallet != address(0),
+            "NFTCollection: Invalid Safe wallet address"
+        );
+        require(
+            _maxSupply > 0,
+            "NFTCollection: Max supply must be greater than 0"
+        );
+        require(
+            _maxMintPerUser > 0,
+            "NFTCollection: Max mint per user must be greater than 0"
+        );
+        require(
+            _totalRoyaltyPercentage <= 1000,
+            "NFTCollection: Royalty percentage too high"
+        ); // Max 10%
+        require(
+            _totalRoyaltyPercentage % 2 == 0,
+            "NFTCollection: Total percentage must be even for 50/50 split"
+        );
+
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(ADMIN_ROLE, _admin);
-        
+
         protocolRoyaltyRecipient = _safeWallet;
         totalRoyaltyPercentage = _totalRoyaltyPercentage;
         MAX_SUPPLY = _maxSupply;
         MAX_MINT_PER_USER = _maxMintPerUser;
-        
+
         // Start token IDs from 1
         _tokenIdCounter.increment();
     }
-    
+
+    /**
+     * @dev Restricts access to MINTER_ROLE or ADMIN_ROLE.
+     * Used for functions that the backend (MinterContract) or admin can both call.
+     */
+    modifier onlyMinterOrAdmin() {
+        require(
+            hasRole(MINTER_ROLE, msg.sender) || hasRole(ADMIN_ROLE, msg.sender),
+            "NFTCollection: caller is not minter or admin"
+        );
+        _;
+    }
+
     /**
      * @dev Set the minter contract address
      * @param _minterContract The address of the minter contract
      * @notice Can only be called by admin
      */
-    function setMinterContract(address _minterContract) external onlyRole(ADMIN_ROLE) {
-        require(_minterContract != address(0), "NFTCollection: Invalid minter contract address");
+    function setMinterContract(
+        address _minterContract
+    ) external onlyRole(ADMIN_ROLE) {
+        require(
+            _minterContract != address(0),
+            "NFTCollection: Invalid minter contract address"
+        );
         minterContract = _minterContract;
         _grantRole(MINTER_ROLE, _minterContract);
-        
+
         emit MinterContractSet(_minterContract);
     }
-
 
     /**
      * @dev Update royalty information
@@ -104,42 +152,86 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
      * @notice Can only be called by admin
      * @notice Royalty is always split 50/50 between protocol and creator
      */
-    function updateRoyaltyInfo(address _protocolRecipient, uint256 _totalPercentage) external onlyRole(ADMIN_ROLE) {
-        require(_protocolRecipient != address(0), "NFTCollection: Invalid protocol recipient address");
-        require(_totalPercentage <= 1000, "NFTCollection: Royalty percentage too high"); // Max 10%
-        require(_totalPercentage % 2 == 0, "NFTCollection: Total percentage must be even for 50/50 split");
-        
+    function updateRoyaltyInfo(
+        address _protocolRecipient,
+        uint256 _totalPercentage
+    ) external onlyRole(ADMIN_ROLE) {
+        require(
+            _protocolRecipient != address(0),
+            "NFTCollection: Invalid protocol recipient address"
+        );
+        require(
+            _totalPercentage <= 1000,
+            "NFTCollection: Royalty percentage too high"
+        ); // Max 10%
+        require(
+            _totalPercentage % 2 == 0,
+            "NFTCollection: Total percentage must be even for 50/50 split"
+        );
+
         protocolRoyaltyRecipient = _protocolRecipient;
         totalRoyaltyPercentage = _totalPercentage;
-        
+
         emit RoyaltyInfoUpdated(_protocolRecipient, _totalPercentage);
     }
-    
+
     /**
      * @dev Mint NFT to a user
      * @param to The address to mint the NFT to
      * @param metadataURI The metadata URI for the NFT
      * @notice Can only be called by the minter contract
      */
-    function mintForUser(address to, string memory metadataURI) external onlyRole(MINTER_ROLE) nonReentrant {
+    function mintForUser(
+        address to,
+        string memory metadataURI
+    ) external onlyRole(MINTER_ROLE) nonReentrant {
         require(to != address(0), "NFTCollection: Cannot mint to zero address");
-        require(_tokenIdCounter.current() <= MAX_SUPPLY, "NFTCollection: Max supply reached");
-        require(userMintCount[to] < MAX_MINT_PER_USER, "NFTCollection: User mint limit reached");
-        
+        require(
+            _tokenIdCounter.current() <= MAX_SUPPLY,
+            "NFTCollection: Max supply reached"
+        );
+        require(
+            userMintCount[to] < MAX_MINT_PER_USER,
+            "NFTCollection: User mint limit reached"
+        );
+
         uint256 tokenId = _tokenIdCounter.current();
         _tokenIdCounter.increment();
-        
+
         userMintCount[to]++;
-        
+
         // Track the creator (first minter)
         tokenCreator[tokenId] = to;
-        
+
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, metadataURI);
-        
+
         emit NFTMinted(to, tokenId, metadataURI, to);
     }
-    
+
+    /**
+     * @dev Set or update the metadata URI for a minted token.
+     * @param tokenId     The token ID to update
+     * @param metadataURI The IPFS URI for the token metadata (must be non-empty)
+     * @notice Callable by MINTER_ROLE (MinterContract / backend) OR ADMIN_ROLE (manual backstop).
+     * @notice URI is intentionally updatable to support future graphics/artwork changes.
+     * @notice To set a URI, mint the NFT first, read the real tokenId from the NFTMinted event,
+     *         upload metadata to IPFS with the correct tokenId, then call this function.
+     */
+    function setTokenURI(
+        uint256 tokenId,
+        string memory metadataURI
+    ) external onlyMinterOrAdmin nonReentrant {
+        require(_exists(tokenId), "NFTCollection: Token does not exist");
+        require(
+            bytes(metadataURI).length > 0,
+            "NFTCollection: URI cannot be empty"
+        );
+
+        _setTokenURI(tokenId, metadataURI);
+        emit TokenURISet(tokenId, metadataURI, msg.sender);
+    }
+
     /**
      * @dev Get the current token ID counter
      * @return The current token ID
@@ -147,7 +239,7 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
     function getCurrentTokenId() external view returns (uint256) {
         return _tokenIdCounter.current();
     }
-    
+
     /**
      * @dev Get the remaining supply
      * @return The number of NFTs that can still be minted
@@ -156,16 +248,18 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
         uint256 currentSupply = _tokenIdCounter.current() - 1;
         return MAX_SUPPLY - currentSupply;
     }
-    
+
     /**
      * @dev Check if a user can mint more NFTs
      * @param user The user address to check
      * @return bool True if user can mint more NFTs
      */
     function canUserMint(address user) external view returns (bool) {
-        return userMintCount[user] < MAX_MINT_PER_USER && _tokenIdCounter.current() <= MAX_SUPPLY;
+        return
+            userMintCount[user] < MAX_MINT_PER_USER &&
+            _tokenIdCounter.current() <= MAX_SUPPLY;
     }
-    
+
     /**
      * @dev Get user's mint count
      * @param user The user address
@@ -174,7 +268,7 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
     function getUserMintCount(address user) external view returns (uint256) {
         return userMintCount[user];
     }
-    
+
     // Required overrides for multiple inheritance
     function _beforeTokenTransfer(
         address from,
@@ -184,17 +278,36 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
     ) internal override(ERC721, ERC721Enumerable) {
         super._beforeTokenTransfer(from, to, tokenId, batchSize);
     }
-    
-    function _burn(uint256 tokenId) internal override(ERC721, ERC721URIStorage) {
+
+    function _burn(
+        uint256 tokenId
+    ) internal override(ERC721, ERC721URIStorage) {
         super._burn(tokenId);
     }
-    
-    function tokenURI(uint256 tokenId) public view override(ERC721, ERC721URIStorage) returns (string memory) {
+
+    function tokenURI(
+        uint256 tokenId
+    ) public view override(ERC721, ERC721URIStorage) returns (string memory) {
         return super.tokenURI(tokenId);
     }
-    
-    function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl, IERC165) returns (bool) {
-        return interfaceId == type(IERC2981).interfaceId || super.supportsInterface(interfaceId);
+
+    function supportsInterface(
+        bytes4 interfaceId
+    )
+        public
+        view
+        override(
+            ERC721,
+            ERC721Enumerable,
+            ERC721URIStorage,
+            AccessControl,
+            IERC165
+        )
+        returns (bool)
+    {
+        return
+            interfaceId == type(IERC2981).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
     /**
@@ -204,7 +317,10 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
      * @return royaltyAmount The total royalty amount
      * @notice For split royalty info between protocol and creator, use getSplitRoyaltyInfo()
      */
-    function royaltyInfo(uint256 /* tokenId */, uint256 salePrice) external view override returns (address receiver, uint256 royaltyAmount) {
+    function royaltyInfo(
+        uint256 /* tokenId */,
+        uint256 salePrice
+    ) external view override returns (address receiver, uint256 royaltyAmount) {
         receiver = protocolRoyaltyRecipient; // Return protocol recipient as per ERC-2981
         royaltyAmount = (salePrice * totalRoyaltyPercentage) / 10000;
     }
@@ -218,17 +334,26 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
      * @return protocolAmount The protocol royalty amount (50% of total)
      * @return creatorAmount The creator royalty amount (50% of total)
      */
-    function getSplitRoyaltyInfo(uint256 tokenId, uint256 salePrice) external view returns (
-        address protocolReceiver,
-        address creatorReceiver,
-        uint256 protocolAmount,
-        uint256 creatorAmount
-    ) {
+    function getSplitRoyaltyInfo(
+        uint256 tokenId,
+        uint256 salePrice
+    )
+        external
+        view
+        returns (
+            address protocolReceiver,
+            address creatorReceiver,
+            uint256 protocolAmount,
+            uint256 creatorAmount
+        )
+    {
         // Calculate 50% of total royalty for each party
         uint256 halfPercentage = totalRoyaltyPercentage / 2;
-        
+
         protocolReceiver = protocolRoyaltyRecipient;
-        creatorReceiver = tokenCreator[tokenId] != address(0) ? tokenCreator[tokenId] : protocolRoyaltyRecipient; // Fallback to protocol if no creator
+        creatorReceiver = tokenCreator[tokenId] != address(0)
+            ? tokenCreator[tokenId]
+            : protocolRoyaltyRecipient; // Fallback to protocol if no creator
         protocolAmount = (salePrice * halfPercentage) / 10000;
         creatorAmount = (salePrice * halfPercentage) / 10000;
     }
@@ -243,4 +368,3 @@ contract NFTCollection is ERC721, ERC721Enumerable, ERC721URIStorage, AccessCont
         return tokenCreator[tokenId];
     }
 }
-

@@ -1,22 +1,22 @@
 {
-  "timestamp": "2025-11-27T23:44:31.253Z",
+  "timestamp": "2026-02-26T19:39:01.772Z",
   "network": "sepolia",
   "chainId": "11155111",
   "contracts": {
     "ceoToken": {
-      "success": false,
+      "success": true,
       "address": "0xA5bcA6252a477C4Eb62cDbabF3C16f7c06b4f741",
-      "error": "The Etherscan API responded with a failure status.\nThe verification may still succeed but should be checked manually.\nReason: Missing chainid parameter (required for v2 api), please see https://api.etherscan.io/v2/chainlist for the list of supported chainids"
+      "alreadyVerified": true
     },
     "pfpCollection": {
-      "success": true,
-      "address": "0x953d13825dc4dB8F5a07D90877d1f4626a355bac",
-      "alreadyVerified": true
+      "success": false,
+      "address": "0x76fB8A81aC674F0A29d5063da02750b56569816D",
+      "error": "The Etherscan API responded with a failure status.\nThe verification may still succeed but should be checked manually.\nReason: Missing chainid parameter (required for v2 api), please see https://api.etherscan.io/v2/chainlist for the list of supported chainids"
     },
     "memeCollection": {
-      "success": true,
-      "address": "0x5a9f7C350A8f69692e36494FCd42e24640aa804d",
-      "alreadyVerified": true
+      "success": false,
+      "address": "0xCf01946e97FA0d59e7c23FD15F1442Ac24BE7E2a",
+      "error": "The Etherscan API responded with a failure status.\nThe verification may still succeed but should be checked manually.\nReason: Missing chainid parameter (required for v2 api), please see https://api.etherscan.io/v2/chainlist for the list of supported chainids"
     },
     "usdc": {
       "success": false,
@@ -25,7 +25,7 @@
     },
     "minterContract": {
       "success": false,
-      "address": "0xccb8a72cd9149F85c74de4d3d2D756782aa338e8",
+      "address": "0xc4e8663F22050F13b812ff69b26d6cc372977a41",
       "error": "The Etherscan API responded with a failure status.\nThe verification may still succeed but should be checked manually.\nReason: Missing chainid parameter (required for v2 api), please see https://api.etherscan.io/v2/chainlist for the list of supported chainids"
     }
   }

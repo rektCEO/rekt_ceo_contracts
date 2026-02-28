@@ -420,11 +420,13 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
       const pfpTier1 = await minterContract.tiers(0, 1);
       const pfpTier2 = await minterContract.tiers(0, 2);
       const pfpTier3 = await minterContract.tiers(0, 3);
+      const pfpTier4 = await minterContract.tiers(0, 4);
 
       // Verify prices don't overflow and are reasonable (now in USDC decimals = 6)
       expect(pfpTier1.priceUSD).to.equal(BigInt(50 * 1e6)); // $50 in USDC decimals
       expect(pfpTier2.priceUSD).to.equal(BigInt(150 * 1e6)); // $150 in USDC decimals
-      expect(pfpTier3.priceUSD).to.equal(BigInt(250 * 1e6)); // $250 in USDC decimals
+      expect(pfpTier3.priceUSD).to.equal(BigInt(450 * 1e6)); // $450 in USDC decimals
+      expect(pfpTier4.priceUSD).to.equal(BigInt(11000 * 1e6)); // $11000 in USDC decimals
 
       // Calculate CEO prices (should not overflow)
       const [currentSupply, tierId, priceUSD, ceoPrice1] = await minterContract.getCurrentTierInfo(0); // Extract priceCEO (4th value)
@@ -438,16 +440,20 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
       const tier1 = await minterContract.tiers(0, 1);
       const tier2 = await minterContract.tiers(0, 2);
       const tier3 = await minterContract.tiers(0, 3);
+      const tier4 = await minterContract.tiers(0, 4);
 
       // Verify tier boundaries
       const tier1End = Number(tier1.startSupply) + Number(tier1.supplyLimit);
       expect(tier1End).to.equal(500);
 
       const tier2End = Number(tier2.startSupply) + Number(tier2.supplyLimit);
-      expect(tier2End).to.equal(809);
+      expect(tier2End).to.equal(800);
 
       const tier3End = Number(tier3.startSupply) + Number(tier3.supplyLimit);
-      expect(tier3End).to.equal(999);
+      expect(tier3End).to.equal(990);
+
+      const tier4End = Number(tier4.startSupply) + Number(tier4.supplyLimit);
+      expect(tier4End).to.equal(999);
 
       console.log("✓ Tier boundaries calculated safely");
     });
@@ -486,8 +492,9 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
     it("Should correctly calculate tier boundaries", async function () {
       // PFP Tiers:
       // Tier 1: 0-499 (supply) → tokens 1-500
-      // Tier 2: 500-808 (supply) → tokens 501-809
-      // Tier 3: 809-998 (supply) → tokens 810-999
+      // Tier 2: 500-799 (supply) → tokens 501-800
+      // Tier 3: 800-989 (supply) → tokens 801-990
+      // Tier 4: 990-998 (supply) → tokens 991-999
 
       const tier1 = await minterContract.tiers(0, 1);
       expect(tier1.startSupply).to.equal(0);
@@ -495,14 +502,18 @@ describe("Fuzz Testing - Tiered Minting & NFT ID Progression", function () {
 
       const tier2 = await minterContract.tiers(0, 2);
       expect(tier2.startSupply).to.equal(500);
-      expect(tier2.supplyLimit).to.equal(309);
+      expect(tier2.supplyLimit).to.equal(300);
 
       const tier3 = await minterContract.tiers(0, 3);
-      expect(tier3.startSupply).to.equal(809);
+      expect(tier3.startSupply).to.equal(800);
       expect(tier3.supplyLimit).to.equal(190);
 
+      const tier4 = await minterContract.tiers(0, 4);
+      expect(tier4.startSupply).to.equal(990);
+      expect(tier4.supplyLimit).to.equal(9);
+
       // Verify total adds up to max supply
-      const totalSupply = Number(tier1.supplyLimit) + Number(tier2.supplyLimit) + Number(tier3.supplyLimit);
+      const totalSupply = Number(tier1.supplyLimit) + Number(tier2.supplyLimit) + Number(tier3.supplyLimit) + Number(tier4.supplyLimit);
       expect(totalSupply).to.equal(999);
 
       console.log("✓ Tier boundaries correctly configured");

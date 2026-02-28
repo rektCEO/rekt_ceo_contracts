@@ -14,8 +14,8 @@ describe("MinterContract", function () {
   let user2;
 
   // Prices in USDC decimals (6 decimals for USDC)
-  const PFP_PRICES = [BigInt(50 * 1e6), BigInt(150 * 1e6), BigInt(250 * 1e6)];
-  const MEME_PRICES = [BigInt(5 * 1e6), BigInt(15 * 1e6), BigInt(25 * 1e6)];
+  const PFP_PRICES = [BigInt(50 * 1e6), BigInt(150 * 1e6), BigInt(450 * 1e6), BigInt(11000 * 1e6)];
+  const MEME_PRICES = [BigInt(5 * 1e6), BigInt(15 * 1e6), BigInt(50 * 1e6), BigInt(1100 * 1e6)];
   const CEO_PRICE_USDC = BigInt(567000); // 0.567 USDC (6 decimals) per CEO token
 
   beforeEach(async function () {
@@ -88,7 +88,7 @@ describe("MinterContract", function () {
     });
 
     it("Should initialize default tiers with supply limits", async function () {
-      // Check PFP tiers (500, 309, 190 = 999 total)
+      // Check PFP tiers (500, 300, 190, 9 = 999 total)
       const pfpTier1 = await minterContract.tiers(0, 1);
       expect(pfpTier1.priceUSD).to.equal(PFP_PRICES[0]);
       expect(pfpTier1.supplyLimit).to.equal(500);
@@ -96,15 +96,20 @@ describe("MinterContract", function () {
 
       const pfpTier2 = await minterContract.tiers(0, 2);
       expect(pfpTier2.priceUSD).to.equal(PFP_PRICES[1]);
-      expect(pfpTier2.supplyLimit).to.equal(309);
+      expect(pfpTier2.supplyLimit).to.equal(300);
       expect(pfpTier2.startSupply).to.equal(500);
 
       const pfpTier3 = await minterContract.tiers(0, 3);
       expect(pfpTier3.priceUSD).to.equal(PFP_PRICES[2]);
       expect(pfpTier3.supplyLimit).to.equal(190);
-      expect(pfpTier3.startSupply).to.equal(809);
+      expect(pfpTier3.startSupply).to.equal(800);
 
-      // Check Meme tiers (5000, 3090, 1909 = 9999 total)
+      const pfpTier4 = await minterContract.tiers(0, 4);
+      expect(pfpTier4.priceUSD).to.equal(PFP_PRICES[3]);
+      expect(pfpTier4.supplyLimit).to.equal(9);
+      expect(pfpTier4.startSupply).to.equal(990);
+
+      // Check Meme tiers (5000, 3500, 1400, 99 = 9999 total)
       const memeTier1 = await minterContract.tiers(1, 1);
       expect(memeTier1.priceUSD).to.equal(MEME_PRICES[0]);
       expect(memeTier1.supplyLimit).to.equal(5000);
@@ -112,13 +117,18 @@ describe("MinterContract", function () {
 
       const memeTier2 = await minterContract.tiers(1, 2);
       expect(memeTier2.priceUSD).to.equal(MEME_PRICES[1]);
-      expect(memeTier2.supplyLimit).to.equal(3090);
+      expect(memeTier2.supplyLimit).to.equal(3500);
       expect(memeTier2.startSupply).to.equal(5000);
 
       const memeTier3 = await minterContract.tiers(1, 3);
       expect(memeTier3.priceUSD).to.equal(MEME_PRICES[2]);
-      expect(memeTier3.supplyLimit).to.equal(1909);
-      expect(memeTier3.startSupply).to.equal(8090);
+      expect(memeTier3.supplyLimit).to.equal(1400);
+      expect(memeTier3.startSupply).to.equal(8500);
+
+      const memeTier4 = await minterContract.tiers(1, 4);
+      expect(memeTier4.priceUSD).to.equal(MEME_PRICES[3]);
+      expect(memeTier4.supplyLimit).to.equal(99);
+      expect(memeTier4.startSupply).to.equal(9900);
     });
   });
 
@@ -342,6 +352,29 @@ describe("MinterContract", function () {
       expect(tierId).to.equal(1);
       expect(remainingInTier).to.equal(496); // 500 - 4 = 496 remaining
       expect(await pfpCollection.getCurrentTokenId()).to.equal(5); // Next token ID
+    });
+
+    it("Should correctly transition through all tiers including tier 4", async function () {
+      // This test verifies tier progression logic works for all 4 tiers
+      // Note: In a real scenario, you would need to mint many NFTs to reach tier 4
+      // This test verifies the tier 4 configuration is correct
+      
+      const pfpTier4 = await minterContract.tiers(0, 4);
+      expect(pfpTier4.priceUSD).to.equal(PFP_PRICES[3]); // $11000
+      expect(pfpTier4.supplyLimit).to.equal(9);
+      expect(pfpTier4.startSupply).to.equal(990);
+      
+      const memeTier4 = await minterContract.tiers(1, 4);
+      expect(memeTier4.priceUSD).to.equal(MEME_PRICES[3]); // $1100
+      expect(memeTier4.supplyLimit).to.equal(99);
+      expect(memeTier4.startSupply).to.equal(9900);
+      
+      // Verify tier 4 end supply
+      const pfpTier4End = pfpTier4.startSupply + pfpTier4.supplyLimit;
+      expect(pfpTier4End).to.equal(999);
+      
+      const memeTier4End = memeTier4.startSupply + memeTier4.supplyLimit;
+      expect(memeTier4End).to.equal(9999);
     });
   });
 

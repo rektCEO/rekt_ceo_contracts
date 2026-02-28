@@ -58,20 +58,50 @@ async function main() {
         console.log("\nUsing existing Meme Collection at:", existingAddress);
         memeCollectionAddress = existingAddress;
         
+        // Check if contract exists at address
+        const code = await ethers.provider.getCode(existingAddress);
+        if (code === "0x") {
+            console.error(`❌ No contract found at address ${existingAddress}`);
+            console.error("Please verify the address or deploy a new collection.");
+            process.exit(1);
+        }
+        
         // Get contract instance and display information
         const NFTCollection = await ethers.getContractFactory("NFTCollection");
         const existingCollection = NFTCollection.attach(existingAddress);
         
         console.log("\nExisting Meme Collection Details:");
-        console.log("- Name:", await existingCollection.name());
-        console.log("- Symbol:", await existingCollection.symbol());
-        console.log("- Max Supply:", (await existingCollection.MAX_SUPPLY()).toString());
-        console.log("- Max Mint Per User:", (await existingCollection.MAX_MINT_PER_USER()).toString());
-        console.log("- Current Token ID:", (await existingCollection.getCurrentTokenId()).toString());
-        console.log("- Remaining Supply:", (await existingCollection.getRemainingSupply()).toString());
-        console.log("- Minter Contract:", await existingCollection.minterContract());
-        console.log("- Protocol Royalty Recipient:", await existingCollection.protocolRoyaltyRecipient());
-        console.log("- Total Royalty Percentage:", (await existingCollection.totalRoyaltyPercentage()).toString(), "basis points");
+        
+        // Helper function to safely call contract methods
+        const safeCall = async (fn, label, defaultValue = "N/A") => {
+            try {
+                const result = await fn();
+                return result.toString ? result.toString() : result;
+            } catch (error) {
+                console.warn(`⚠️  Could not fetch ${label}: ${error.message}`);
+                return defaultValue;
+            }
+        };
+        
+        const name = await safeCall(() => existingCollection.name(), "Name");
+        const symbol = await safeCall(() => existingCollection.symbol(), "Symbol");
+        const maxSupply = await safeCall(() => existingCollection.MAX_SUPPLY(), "Max Supply");
+        const maxMintPerUser = await safeCall(() => existingCollection.MAX_MINT_PER_USER(), "Max Mint Per User");
+        const currentTokenId = await safeCall(() => existingCollection.getCurrentTokenId(), "Current Token ID");
+        const remainingSupply = await safeCall(() => existingCollection.getRemainingSupply(), "Remaining Supply");
+        const minterContract = await safeCall(() => existingCollection.minterContract(), "Minter Contract");
+        const protocolRoyaltyRecipient = await safeCall(() => existingCollection.protocolRoyaltyRecipient(), "Protocol Royalty Recipient");
+        const totalRoyaltyPercentage = await safeCall(() => existingCollection.totalRoyaltyPercentage(), "Total Royalty Percentage");
+        
+        console.log("- Name:", name);
+        console.log("- Symbol:", symbol);
+        console.log("- Max Supply:", maxSupply);
+        console.log("- Max Mint Per User:", maxMintPerUser);
+        console.log("- Current Token ID:", currentTokenId);
+        console.log("- Remaining Supply:", remainingSupply);
+        console.log("- Minter Contract:", minterContract);
+        console.log("- Protocol Royalty Recipient:", protocolRoyaltyRecipient);
+        console.log("- Total Royalty Percentage:", totalRoyaltyPercentage, "basis points");
     } else {
         if (existingAddress && !ethers.isAddress(existingAddress)) {
             console.log("⚠️  Invalid MEME_COLLECTION_ADDRESS provided, deploying new collection...");
